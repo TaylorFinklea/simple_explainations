@@ -1,0 +1,40 @@
+services:
+  ai-streaming-app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    ports:
+      - "8000:8000"
+    environment:
+      - PORT=8000
+      - PYTHONPATH=/app/src
+      # CORS Configuration (uncomment and modify for production testing)
+      # - FRONTEND_URL=http://localhost:8000
+      # - ALLOWED_ORIGINS=http://localhost:8000,http://127.0.0.1:8000
+    volumes:
+      # Mount the source code for development (optional)
+      - ./src:/app/src:ro
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 60s
+    restart: unless-stopped
+    
+  # Optional: Add a reverse proxy for production-like setup
+  nginx:
+    image: nginx:alpine
+    ports:
+      - "80:80"
+    volumes:
+      - ./nginx.conf:/etc/nginx/nginx.conf:ro
+    depends_on:
+      - ai-streaming-app
+    restart: unless-stopped
+    profiles:
+      - production
+
+networks:
+  default:
+    name: ai-streaming-network
