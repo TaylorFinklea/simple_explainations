@@ -1,0 +1,22 @@
+[build-system]
+requires = ["setuptools>=61.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "how-ai-works"
+version = "0.1.0"
+description = "Simple explanations and interactive examples of AI concepts"
+readme = "README.md"
+requires-python = ">=3.11"
+dependencies = ["transformers", "torch", "accelerate", "fastapi", "uvicorn[standard]", "python-multipart"]
+
+[project.scripts]
+how-ai-works = "how_ai_works.main:main"
+interactive-prediction = "how_ai_works.interactive_model_prediction:main"
+ai-server = "how_ai_works.api:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.setuptools.package-dir]
+"" = "src"
