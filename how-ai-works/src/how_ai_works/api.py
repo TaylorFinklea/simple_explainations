@@ -112,11 +112,18 @@ def load_model_and_tokenizer():
         
         print("Model loaded successfully!")
 
-@app.on_event("startup")
-async def startup_event():
-    """Load model when the server starts"""
-    print(f"Allowed CORS origins: {allowed_origins}")
-    load_model_and_tokenizer()
+# Remove startup event to prevent blocking - load model on first request instead
+# @app.on_event("startup")
+# async def startup_event():
+#     """Load model when the server starts"""
+#     print(f"Allowed CORS origins: {allowed_origins}")
+#     load_model_and_tokenizer()
+
+def ensure_model_loaded():
+    """Ensure model is loaded before processing requests"""
+    global model, tokenizer
+    if model is None or tokenizer is None:
+        load_model_and_tokenizer()
 
 @app.get("/health")
 async def health_check():
@@ -151,24 +158,12 @@ async def serve_frontend():
     else:
         return {"message": "AI Word Prediction API is running"}
 
-# Catch-all route to serve frontend for client-side routing
-@app.get("/{full_path:path}")
-async def serve_frontend_routes(full_path: str):
-    """Serve frontend for all non-API routes (client-side routing)"""
-    # Don't interfere with API routes
-    if full_path.startswith("api/"):
-        raise HTTPException(status_code=404, detail="API endpoint not found")
-    
-    static_dir = "/app/static"
-    index_file = os.path.join(static_dir, "index.html")
-    if os.path.exists(index_file):
-        return FileResponse(index_file)
-    else:
-        raise HTTPException(status_code=404, detail="Page not found")
-
 @app.post("/api/predict", response_model=PredictionResponse)
 async def predict_next_word(request: PredictionRequest):
     """Predict the next word given an input phrase"""
+    
+    # Ensure model is loaded
+    ensure_model_loaded()
     
     if model is None or tokenizer is None:
         raise HTTPException(status_code=500, detail="Model not loaded")
@@ -225,6 +220,21 @@ async def predict_next_word(request: PredictionRequest):
         
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Prediction failed: {str(e)}")
+
+# Catch-all route to serve frontend for client-side routing (must be last)
+@app.get("/{full_path:path}")
+async def serve_frontend_routes(full_path: str):
+    """Serve frontend for all non-API routes (client-side routing)"""
+    # Don't interfere with API routes or static assets
+    if full_path.startswith("api/") or full_path.startswith("assets/") or full_path.startswith("static/"):
+        raise HTTPException(status_code=404, detail="Not found")
+    
+    static_dir = "/app/static"
+    index_file = os.path.join(static_dir, "index.html")
+    if os.path.exists(index_file):
+        return FileResponse(index_file)
+    else:
+        raise HTTPException(status_code=404, detail="Page not found")
 
 def main():
     """Start the FastAPI server"""
