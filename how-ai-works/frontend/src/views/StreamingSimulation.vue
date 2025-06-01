@@ -28,6 +28,8 @@ const isPaused = ref(false);
 const connectionStatus = ref<"checking" | "connected" | "disconnected">(
   "checking",
 );
+const modelStatus = ref<'not_loaded' | 'loading' | 'loaded' | 'error'>('not_loaded');
+const isLoadingModel = ref(false);
 const currentStep = ref(0);
 const currentRound = ref(1);
 const streamingHistory = ref<StreamingStep[]>([]);
@@ -37,8 +39,8 @@ const timeRemaining = ref(0);
 const isCompleted = ref(false);
 const isHistoryCollapsed = ref(true);
 
-let streamingInterval: NodeJS.Timeout | null = null;
-let countdownInterval: NodeJS.Timeout | null = null;
+let streamingInterval: number | null = null;
+let countdownInterval: number | null = null;
 
 const formatPercentage = (probability: number) => {
   return (probability * 100).toFixed(1) + "%";
@@ -50,6 +52,8 @@ const checkServerConnection = async () => {
     const response = await fetch(API_CONFIG.healthEndpoint);
     if (response.ok) {
       connectionStatus.value = "connected";
+      // Also check model status when server is connected
+      await checkModelStatus();
     } else {
       connectionStatus.value = "disconnected";
     }
@@ -57,6 +61,75 @@ const checkServerConnection = async () => {
     console.error("Server connection failed:", err);
     connectionStatus.value = "disconnected";
   }
+};
+
+const checkModelStatus = async () => {
+  try {
+    const response = await fetch(API_CONFIG.modelStatusEndpoint);
+    if (response.ok) {
+      const data = await response.json();
+      modelStatus.value = data.status;
+      return data.status;
+    }
+  } catch (err) {
+    console.error('Model status check failed:', err);
+  }
+  return 'error';
+};
+
+const loadModel = async () => {
+  isLoadingModel.value = true;
+  
+  try {
+    const response = await fetch(API_CONFIG.modelLoadEndpoint, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      }
+    });
+
+    if (response.ok) {
+      const data = await response.json();
+      if (data.status === 'success' || data.status === 'already_loaded') {
+        modelStatus.value = 'loaded';
+      } else if (data.status === 'already_loading') {
+        modelStatus.value = 'loading';
+        // Poll for completion
+        await pollModelStatus();
+      }
+    } else {
+      modelStatus.value = 'error';
+    }
+  } catch (err) {
+    modelStatus.value = 'error';
+    console.error('Model loading error:', err);
+  } finally {
+    isLoadingModel.value = false;
+  }
+};
+
+const pollModelStatus = async () => {
+  const maxAttempts = 60; // 2 minutes with 2-second intervals
+  let attempts = 0;
+  
+  const poll = async () => {
+    if (attempts >= maxAttempts) {
+      modelStatus.value = 'error';
+      return;
+    }
+    
+    const status = await checkModelStatus();
+    if (status === 'loaded') {
+      return;
+    } else if (status === 'error') {
+      return;
+    } else if (status === 'loading') {
+      attempts++;
+      setTimeout(poll, 2000); // Check again in 2 seconds
+    }
+  };
+  
+  await poll();
 };
 
 const getPredictions = async (phrase: string) => {
@@ -189,7 +262,13 @@ const streamNextWord = async () => {
 };
 
 const startStreaming = async () => {
-  if (connectionStatus.value !== "connected") return;
+  if (connectionStatus.value !== "connected" || modelStatus.value !== "loaded") return;
+  
+  // Check model status first
+  const currentModelStatus = await checkModelStatus();
+  if (currentModelStatus !== 'loaded') {
+    return;
+  }
 
   isStreaming.value = true;
   isPaused.value = false;
@@ -258,7 +337,13 @@ const resetSimulation = () => {
 };
 
 const continueStreaming = async () => {
-  if (connectionStatus.value !== "connected") return;
+  if (connectionStatus.value !== "connected" || modelStatus.value !== "loaded") return;
+  
+  // Check model status first
+  const currentModelStatus = await checkModelStatus();
+  if (currentModelStatus !== 'loaded') {
+    return;
+  }
 
   // Reset completion state but keep history and current phrase
   isCompleted.value = false;
@@ -320,6 +405,82 @@ onMounted(() => {
       </div>
     </div>
 
+    <!-- Model Loading Status Card -->
+    <div v-if="connectionStatus === 'connected' && modelStatus !== 'loaded'" class="card mb-6">
+      <!-- Model Not Loaded -->
+      <div v-if="modelStatus === 'not_loaded'" class="bg-yellow-50 border-yellow-200 p-4 rounded-lg">
+        <div class="flex items-center justify-between">
+          <div>
+            <div class="flex items-center space-x-2">
+              <div class="w-3 h-3 bg-yellow-600 rounded-full"></div>
+              <span class="text-yellow-800 font-medium">AI Model Not Loaded</span>
+            </div>
+            <p class="text-yellow-700 text-sm mt-1">
+              The AI model needs to be loaded before you can start streaming. This is a one-time process.
+            </p>
+          </div>
+          <button
+            @click="loadModel"
+            :disabled="isLoadingModel"
+            class="btn-primary"
+          >
+            <span v-if="isLoadingModel">Loading...</span>
+            <span v-else>Load AI Model</span>
+          </button>
+        </div>
+      </div>
+
+      <!-- Model Loading -->
+      <div v-else-if="modelStatus === 'loading' || isLoadingModel" class="bg-blue-50 border-blue-200 p-4 rounded-lg">
+        <div class="flex items-center space-x-3">
+          <div class="animate-spin rounded-full h-6 w-6 border-b-2 border-blue-600"></div>
+          <div>
+            <div class="text-blue-800 font-medium">Loading AI Model...</div>
+            <p class="text-blue-700 text-sm mt-1">
+              This may take 1-2 minutes for the first time. The model (SmolLM2-1.7B) is being downloaded and initialized.
+            </p>
+            <div class="mt-2 text-xs text-blue-600">
+              ⏳ Please wait, do not refresh the page
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Model Error -->
+      <div v-else-if="modelStatus === 'error'" class="bg-red-50 border-red-200 p-4 rounded-lg">
+        <div class="flex items-center justify-between">
+          <div>
+            <div class="flex items-center space-x-2">
+              <div class="w-3 h-3 bg-red-600 rounded-full"></div>
+              <span class="text-red-800 font-medium">Model Loading Failed</span>
+            </div>
+            <p class="text-red-700 text-sm mt-1">
+              There was an error loading the AI model. Please try again.
+            </p>
+          </div>
+          <button
+            @click="loadModel"
+            :disabled="isLoadingModel"
+            class="btn-primary"
+          >
+            <span v-if="isLoadingModel">Retrying...</span>
+            <span v-else>Retry Loading</span>
+          </button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Model Ready Confirmation -->
+    <div v-if="connectionStatus === 'connected' && modelStatus === 'loaded'" class="card mb-6 bg-green-50 border-green-200">
+      <div class="flex items-center space-x-2">
+        <div class="w-3 h-3 bg-green-600 rounded-full"></div>
+        <span class="text-green-800 font-medium">AI Model Ready</span>
+      </div>
+      <p class="text-green-700 text-sm mt-1">
+        🎉 SmolLM2-1.7B is loaded and ready for streaming!
+      </p>
+    </div>
+
     <!-- Configuration Panel -->
     <div class="card mb-6">
       <h3 class="text-lg font-semibold text-gray-900 mb-4">Configuration</h3>
@@ -348,7 +509,7 @@ onMounted(() => {
             type="text"
             class="input-field"
             placeholder="Enter starting phrase..."
-            :disabled="isStreaming"
+            :disabled="isStreaming || modelStatus !== 'loaded'"
           />
         </div>
 
@@ -368,7 +529,7 @@ onMounted(() => {
             max="10"
             step="0.5"
             class="input-field"
-            :disabled="isStreaming"
+            :disabled="isStreaming || modelStatus !== 'loaded'"
           />
         </div>
 
@@ -388,7 +549,7 @@ onMounted(() => {
             max="2.0"
             step="0.1"
             class="input-field"
-            :disabled="isStreaming"
+            :disabled="isStreaming || modelStatus !== 'loaded'"
           />
         </div>
 
@@ -407,7 +568,7 @@ onMounted(() => {
             min="1"
             max="20"
             class="input-field"
-            :disabled="isStreaming"
+            :disabled="isStreaming || modelStatus !== 'loaded'"
           />
         </div>
 
@@ -426,7 +587,7 @@ onMounted(() => {
             min="1"
             max="20"
             class="input-field"
-            :disabled="isStreaming"
+            :disabled="isStreaming || modelStatus !== 'loaded'"
           />
         </div>
       </div>
@@ -437,22 +598,27 @@ onMounted(() => {
         <button
           v-if="!isCompleted"
           @click="startStreaming"
-          :disabled="isStreaming || connectionStatus !== 'connected'"
+          :disabled="isStreaming || connectionStatus !== 'connected' || modelStatus !== 'loaded'"
           class="btn-primary"
         >
-          <span v-if="connectionStatus !== 'connected'"
-            >Server Disconnected</span
-          >
+          <span v-if="connectionStatus !== 'connected'">Server Disconnected</span>
+          <span v-else-if="modelStatus === 'loading'">Model Loading...</span>
+          <span v-else-if="modelStatus === 'not_loaded'">Load Model First</span>
+          <span v-else-if="modelStatus === 'error'">Model Error</span>
           <span v-else>Start Streaming</span>
         </button>
 
         <button
           v-if="isCompleted"
           @click="continueStreaming"
-          :disabled="isStreaming || connectionStatus !== 'connected'"
+          :disabled="isStreaming || connectionStatus !== 'connected' || modelStatus !== 'loaded'"
           class="btn-primary"
         >
-          Continue
+          <span v-if="connectionStatus !== 'connected'">Server Disconnected</span>
+          <span v-else-if="modelStatus === 'loading'">Model Loading...</span>
+          <span v-else-if="modelStatus === 'not_loaded'">Load Model First</span>
+          <span v-else-if="modelStatus === 'error'">Model Error</span>
+          <span v-else>Continue</span>
         </button>
 
         <!-- Secondary Control Buttons -->

@@ -14,12 +14,103 @@ const predictions = ref<PredictionResult[]>([])
 const isLoading = ref(false)
 const error = ref('')
 const connectionStatus = ref<'checking' | 'connected' | 'disconnected'>('checking')
+const modelStatus = ref<'not_loaded' | 'loading' | 'loaded' | 'error'>('not_loaded')
 const continuingWithWord = ref('')
+const isLoadingModel = ref(false)
+
+const checkModelStatus = async () => {
+  try {
+    const response = await fetch(API_CONFIG.modelStatusEndpoint)
+    if (response.ok) {
+      const data = await response.json()
+      modelStatus.value = data.status
+      return data.status
+    }
+  } catch (err: unknown) {
+    console.error('Model status check failed:', err)
+  }
+  return 'error'
+}
+
+const loadModel = async () => {
+  isLoadingModel.value = true
+  error.value = ''
+  
+  try {
+    const response = await fetch(API_CONFIG.modelLoadEndpoint, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      }
+    })
+
+    if (response.ok) {
+      const data = await response.json()
+      if (data.status === 'success' || data.status === 'already_loaded') {
+        modelStatus.value = 'loaded'
+      } else if (data.status === 'already_loading') {
+        modelStatus.value = 'loading'
+        // Poll for completion
+        await pollModelStatus()
+      }
+    } else {
+      modelStatus.value = 'error'
+      error.value = 'Failed to load model'
+    }
+  } catch (err: unknown) {
+    modelStatus.value = 'error'
+    error.value = `Model loading failed: ${err instanceof Error ? err.message : String(err)}`
+    console.error('Model loading error:', err)
+  } finally {
+    isLoadingModel.value = false
+  }
+}
+
+const pollModelStatus = async () => {
+  const maxAttempts = 60 // 2 minutes with 2-second intervals
+  let attempts = 0
+  
+  const poll = async () => {
+    if (attempts >= maxAttempts) {
+      modelStatus.value = 'error'
+      error.value = 'Model loading timed out'
+      return
+    }
+    
+    const status = await checkModelStatus()
+    if (status === 'loaded') {
+      return
+    } else if (status === 'error') {
+      error.value = 'Model loading failed'
+      return
+    } else if (status === 'loading') {
+      attempts++
+      setTimeout(poll, 2000) // Check again in 2 seconds
+    }
+  }
+  
+  await poll()
+}
 
 const runPrediction = async () => {
   if (!inputPhrase.value.trim()) {
     error.value = 'Please enter a phrase'
     return
+  }
+
+  // Check model status first
+  const currentModelStatus = await checkModelStatus()
+  if (currentModelStatus !== 'loaded') {
+    if (currentModelStatus === 'not_loaded') {
+      error.value = 'Model is not loaded. Please load the model first.'
+      return
+    } else if (currentModelStatus === 'loading') {
+      error.value = 'Model is currently loading. Please wait...'
+      return
+    } else if (currentModelStatus === 'error') {
+      error.value = 'Model failed to load. Please try loading it again.'
+      return
+    }
   }
 
   isLoading.value = true
@@ -44,18 +135,18 @@ const runPrediction = async () => {
     }
 
     const result = await response.json()
-    predictions.value = result.predictions.map(pred => ({
+    predictions.value = result.predictions.map((pred: any) => ({
       word: pred.word,
       probability: pred.probability,
       tokenId: pred.token_id
     }))
 
-  } catch (err) {
-    if (err.name === 'TypeError' && err.message.includes('fetch')) {
+  } catch (err: unknown) {
+    if (err instanceof Error && err.name === 'TypeError' && err.message.includes('fetch')) {
       error.value = 'Cannot connect to AI server. Make sure the backend is running on http://localhost:8000'
       connectionStatus.value = 'disconnected'
     } else {
-      error.value = `Failed to get predictions: ${err.message}`
+      error.value = `Failed to get predictions: ${err instanceof Error ? err.message : String(err)}`
     }
     console.error('Prediction error:', err)
   } finally {
@@ -93,10 +184,12 @@ const checkServerConnection = async () => {
     const response = await fetch(API_CONFIG.healthEndpoint)
     if (response.ok) {
       connectionStatus.value = 'connected'
+      // Also check model status when server is connected
+      await checkModelStatus()
     } else {
       connectionStatus.value = 'disconnected'
     }
-  } catch (err) {
+  } catch (err: unknown) {
     console.error('Server connection failed:', err)
     connectionStatus.value = 'disconnected'
   }
@@ -134,6 +227,82 @@ onMounted(() => {
       </div>
     </div>
 
+    <!-- Model Loading Status Card -->
+    <div v-if="connectionStatus === 'connected' && modelStatus !== 'loaded'" class="card mb-6">
+      <!-- Model Not Loaded -->
+      <div v-if="modelStatus === 'not_loaded'" class="bg-yellow-50 border-yellow-200 p-4 rounded-lg">
+        <div class="flex items-center justify-between">
+          <div>
+            <div class="flex items-center space-x-2">
+              <div class="w-3 h-3 bg-yellow-600 rounded-full"></div>
+              <span class="text-yellow-800 font-medium">AI Model Not Loaded</span>
+            </div>
+            <p class="text-yellow-700 text-sm mt-1">
+              The AI model needs to be loaded before you can make predictions. This is a one-time process.
+            </p>
+          </div>
+          <button
+            @click="loadModel"
+            :disabled="isLoadingModel"
+            class="btn-primary"
+          >
+            <span v-if="isLoadingModel">Loading...</span>
+            <span v-else>Load AI Model</span>
+          </button>
+        </div>
+      </div>
+
+      <!-- Model Loading -->
+      <div v-else-if="modelStatus === 'loading' || isLoadingModel" class="bg-blue-50 border-blue-200 p-4 rounded-lg">
+        <div class="flex items-center space-x-3">
+          <div class="animate-spin rounded-full h-6 w-6 border-b-2 border-blue-600"></div>
+          <div>
+            <div class="text-blue-800 font-medium">Loading AI Model...</div>
+            <p class="text-blue-700 text-sm mt-1">
+              This may take 1-2 minutes for the first time. The model (SmolLM2-1.7B) is being downloaded and initialized.
+            </p>
+            <div class="mt-2 text-xs text-blue-600">
+              ⏳ Please wait, do not refresh the page
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Model Error -->
+      <div v-else-if="modelStatus === 'error'" class="bg-red-50 border-red-200 p-4 rounded-lg">
+        <div class="flex items-center justify-between">
+          <div>
+            <div class="flex items-center space-x-2">
+              <div class="w-3 h-3 bg-red-600 rounded-full"></div>
+              <span class="text-red-800 font-medium">Model Loading Failed</span>
+            </div>
+            <p class="text-red-700 text-sm mt-1">
+              There was an error loading the AI model. Please try again.
+            </p>
+          </div>
+          <button
+            @click="loadModel"
+            :disabled="isLoadingModel"
+            class="btn-primary"
+          >
+            <span v-if="isLoadingModel">Retrying...</span>
+            <span v-else>Retry Loading</span>
+          </button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Model Ready Confirmation -->
+    <div v-if="connectionStatus === 'connected' && modelStatus === 'loaded'" class="card mb-6 bg-green-50 border-green-200">
+      <div class="flex items-center space-x-2">
+        <div class="w-3 h-3 bg-green-600 rounded-full"></div>
+        <span class="text-green-800 font-medium">AI Model Ready</span>
+      </div>
+      <p class="text-green-700 text-sm mt-1">
+        🎉 SmolLM2-1.7B is loaded and ready for predictions!
+      </p>
+    </div>
+
       <!-- Input Section -->
       <div class="card mb-8">
         <div class="space-y-4">
@@ -148,7 +317,7 @@ onMounted(() => {
               class="input-field"
               placeholder="Enter a phrase..."
               @keyup.enter="runPrediction"
-              :disabled="connectionStatus !== 'connected'"
+              :disabled="connectionStatus !== 'connected' || modelStatus !== 'loaded'"
             />
           </div>
 
@@ -163,18 +332,21 @@ onMounted(() => {
               min="1"
               max="10"
               class="input-field w-32"
-              :disabled="connectionStatus !== 'connected'"
+              :disabled="connectionStatus !== 'connected' || modelStatus !== 'loaded'"
             />
           </div>
 
           <div class="flex space-x-2">
             <button
               @click="runPrediction"
-              :disabled="isLoading || connectionStatus !== 'connected'"
+              :disabled="isLoading || connectionStatus !== 'connected' || modelStatus !== 'loaded'"
               class="btn-primary"
             >
               <span v-if="isLoading">Predicting...</span>
               <span v-else-if="connectionStatus !== 'connected'">Server Disconnected</span>
+              <span v-else-if="modelStatus === 'loading'">Model Loading...</span>
+              <span v-else-if="modelStatus === 'not_loaded'">Load Model First</span>
+              <span v-else-if="modelStatus === 'error'">Model Error</span>
               <span v-else>Predict Next Word</span>
             </button>
             

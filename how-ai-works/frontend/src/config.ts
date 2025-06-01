@@ -7,7 +7,13 @@ export const API_CONFIG = {
   healthEndpoint: import.meta.env.PROD ? '/api/health' : 'http://localhost:8000/health',
   
   // Prediction endpoint
-  predictEndpoint: import.meta.env.PROD ? '/api/predict' : 'http://localhost:8000/predict',
+  predictEndpoint: import.meta.env.PROD ? '/api/predict' : 'http://localhost:8000/api/predict',
+  
+  // Model status endpoint
+  modelStatusEndpoint: import.meta.env.PROD ? '/api/model/status' : 'http://localhost:8000/api/model/status',
+  
+  // Model loading endpoint
+  modelLoadEndpoint: import.meta.env.PROD ? '/api/model/load' : 'http://localhost:8000/api/model/load',
 } as const
 
 // Helper function to get full API URL
