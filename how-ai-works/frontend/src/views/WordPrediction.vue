@@ -227,7 +227,7 @@ onMounted(() => {
       </div>
     </div>
 
-    <!-- Model Loading Status Card -->
+    <!-- Model Loading Status Card (only show when model is not loaded) -->
     <div v-if="connectionStatus === 'connected' && modelStatus !== 'loaded'" class="card mb-6">
       <!-- Model Not Loaded -->
       <div v-if="modelStatus === 'not_loaded'" class="bg-yellow-50 border-yellow-200 p-4 rounded-lg">
@@ -292,16 +292,7 @@ onMounted(() => {
       </div>
     </div>
 
-    <!-- Model Ready Confirmation -->
-    <div v-if="connectionStatus === 'connected' && modelStatus === 'loaded'" class="card mb-6 bg-green-50 border-green-200">
-      <div class="flex items-center space-x-2">
-        <div class="w-3 h-3 bg-green-600 rounded-full"></div>
-        <span class="text-green-800 font-medium">AI Model Ready</span>
-      </div>
-      <p class="text-green-700 text-sm mt-1">
-        🎉 SmolLM2-1.7B is loaded and ready for predictions!
-      </p>
-    </div>
+
 
       <!-- Input Section -->
       <div class="card mb-8">

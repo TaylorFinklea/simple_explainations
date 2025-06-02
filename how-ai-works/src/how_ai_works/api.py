@@ -82,6 +82,7 @@ if os.path.exists(static_dir):
 model = None
 tokenizer = None
 model_loading_status = "not_loaded"  # "not_loaded", "loading", "loaded", "error"
+model_name = "HuggingFaceTB/SmolLM2-1.7B"  # The model being used
 
 class PredictionRequest(BaseModel):
     input_phrase: str = Field(
@@ -224,6 +225,7 @@ async def health_check():
         "model_loaded": model is not None,
         "tokenizer_loaded": tokenizer is not None,
         "model_loading_status": model_loading_status,
+        "model_name": model_name,
         "timestamp": datetime.utcnow().isoformat(),
         "version": "1.0.0"
     }
@@ -235,7 +237,8 @@ async def api_health_check():
         "status": "healthy",
         "model_loaded": model is not None,
         "tokenizer_loaded": tokenizer is not None,
-        "model_loading_status": model_loading_status
+        "model_loading_status": model_loading_status,
+        "model_name": model_name
     }
 
 @app.get("/api")
@@ -250,6 +253,7 @@ async def get_model_status():
         "status": model_loading_status,
         "model_loaded": model is not None,
         "tokenizer_loaded": tokenizer is not None,
+        "model_name": model_name,
         "description": {
             "not_loaded": "Model has not been loaded yet",
             "loading": "Model is currently being loaded",
