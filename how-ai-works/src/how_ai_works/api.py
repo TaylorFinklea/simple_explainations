@@ -1,7 +1,10 @@
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Request, Response
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, JSONResponse
+from slowapi import Limiter
+from slowapi.util import get_remote_address
+from slowapi.errors import RateLimitExceeded
 from pydantic import BaseModel, Field, validator
 from typing import List
 import torch
@@ -21,11 +24,21 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
+limiter = Limiter(key_func=get_remote_address, default_limits=["5/minute"])
+
 app = FastAPI(
     title="AI Word Prediction API",
     description="API for predicting next words using AI language models",
     version="1.0.0"
 )
+app.state.limiter = limiter
+
+def _rate_limit_exceeded_handler(request: Request, exc: RateLimitExceeded) -> Response:
+    return JSONResponse(
+        status_code=429,
+        content={"error": "Rate limit exceeded", "detail": str(exc)},
+    )
+app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
 
 # Add CORS middleware to allow frontend connections
 def get_allowed_origins():
@@ -298,11 +311,12 @@ async def serve_frontend():
         return {"message": "AI Word Prediction API is running"}
 
 @app.post("/api/predict", response_model=PredictionResponse)
-async def predict_next_word(request: PredictionRequest):
+@app.state.limiter.limit()
+async def predict_next_word(request: Request, payload: PredictionRequest):
     """Predict the next word given an input phrase"""
     
     # Log the request for monitoring
-    logger.info(f"Prediction request: phrase_length={len(request.input_phrase)}, top_k={request.top_k_tokens}")
+    logger.info(f"Prediction request: phrase_length={len(payload.input_phrase)}, top_k={payload.top_k_tokens}")
     
     # Ensure model is loaded
     ensure_model_loaded()
@@ -313,7 +327,7 @@ async def predict_next_word(request: PredictionRequest):
     
     try:
         # Additional input validation (Pydantic validators already ran)
-        input_phrase = request.input_phrase.strip()
+        input_phrase = payload.input_phrase.strip()
         
         # Tokenize the input phrase with safety measures
         try:
@@ -345,11 +359,11 @@ async def predict_next_word(request: PredictionRequest):
         probabilities = F.softmax(logits, dim=-1)
         
         # Get top-k predictions
-        top_k_probs, top_k_indices = torch.topk(probabilities, request.top_k_tokens)
+        top_k_probs, top_k_indices = torch.topk(probabilities, payload.top_k_tokens)
         
         # Format results with additional safety checks
         predictions = []
-        for i in range(request.top_k_tokens):
+        for i in range(payload.top_k_tokens):
             token_id = top_k_indices[i].item()
             prob = top_k_probs[i].item()
             

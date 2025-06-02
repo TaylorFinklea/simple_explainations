@@ -8,7 +8,7 @@ version = "0.1.0"
 description = "Simple explanations and interactive examples of AI concepts"
 readme = "README.md"
 requires-python = ">=3.11"
-dependencies = ["transformers", "torch", "accelerate", "fastapi", "uvicorn[standard]", "python-multipart", "safetensors>=0.3.0", "pydantic[email]>=2.0.0"]
+dependencies = ["transformers", "torch", "accelerate", "fastapi", "uvicorn[standard]", "python-multipart", "safetensors>=0.3.0", "pydantic[email]>=2.0.0", "slowapi"]
 
 [project.scripts]
 how-ai-works = "how_ai_works.main:main"
