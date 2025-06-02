@@ -92,6 +92,12 @@ Predict the next word(s) for a given input phrase.
 }
 ```
 
+### Rate Limiting
+
+To ensure fair usage and protect the service from abuse, the `/api/predict` endpoint is rate-limited.
+By default, clients are limited to **5 requests per minute** per IP address.
+If you exceed this limit, you will receive a `429 Too Many Requests` HTTP status code.
+
 ## Model Information
 
 - **Model**: HuggingFaceTB/SmolLM2-1.7B
