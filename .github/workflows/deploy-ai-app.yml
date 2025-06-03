@@ -4,7 +4,7 @@ on:
   push:
     branches: [main]
     paths:
-      - 'how-ai-works/**'
+      - "how-ai-works/**"
   workflow_dispatch: # Allow manual triggering
 
 env:
@@ -96,54 +96,3 @@ jobs:
               sleep 30
             fi
           done
-```
-
-## 🔧 **Setup Required:**
-
-You need to add this secret to your GitHub repository:
-
-### 1. **Create a Service Account:**
-```bash
-# Create service account
-gcloud iam service-accounts create github-actions \
-    --description="GitHub Actions deployment" \
-    --display-name="GitHub Actions"
-
-# Grant necessary permissions
-gcloud projects add-iam-policy-binding novalark-prod \
-    --member="serviceAccount:github-actions@novalark-prod.iam.gserviceaccount.com" \
-    --role="roles/cloudbuild.builds.editor"
-
-gcloud projects add-iam-policy-binding novalark-prod \
-    --member="serviceAccount:github-actions@novalark-prod.iam.gserviceaccount.com" \
-    --role="roles/run.admin"
-
-gcloud projects add-iam-policy-binding novalark-prod \
-    --member="serviceAccount:github-actions@novalark-prod.iam.gserviceaccount.com" \
-    --role="roles/storage.admin"
-
-gcloud projects add-iam-policy-binding novalark-prod \
-    --member="serviceAccount:github-actions@novalark-prod.iam.gserviceaccount.com" \
-    --role="roles/artifactregistry.writer"
-
-# Create and download key
-gcloud iam service-accounts keys create github-actions-key.json \
-    --iam-account=github-actions@novalark-prod.iam.gserviceaccount.com
-```
-
-### 2. **Add Secret to GitHub:**
-1. Go to your GitHub repo → Settings → Secrets and variables → Actions
-2. Click "New repository secret"
-3. Name: `GCP_SA_KEY`
-4. Value: Copy the entire contents of `github-actions-key.json`
-
-## 🎯 **What This Workflow Does:**
-
-✅ **Triggers:** Only on changes to `how-ai-works/` directory
-✅ **Builds:** Docker image with commit SHA tag
-✅ **Pushes:** To Artifact Registry with both SHA and latest tags
-✅ **Deploys:** To Cloud Run with full configuration
-✅ **Health Check:** Verifies deployment is working
-✅ **Summary:** Shows deployment URL and details
-
-The workflow will run automatically every time you push changes to the `how-ai-works` directory on the main branch!
