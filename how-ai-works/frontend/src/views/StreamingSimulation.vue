@@ -161,7 +161,7 @@ const getPredictions = async (phrase: string) => {
     }
 
     const result = await response.json();
-    
+
     // Clear any rate limiting state on successful request
     isRateLimited.value = false;
     rateLimitRetryIn.value = 0;
@@ -169,7 +169,7 @@ const getPredictions = async (phrase: string) => {
       clearInterval(rateLimitTimer);
       rateLimitTimer = null;
     }
-    
+
     return result.predictions
       .map((pred: any) => ({
         word: pred.word,
@@ -188,15 +188,15 @@ const getPredictions = async (phrase: string) => {
 const handleRateLimit = () => {
   isRateLimited.value = true;
   rateLimitRetryIn.value = 60; // 60 seconds countdown
-  
+
   // Stop any ongoing streaming
   stopStreaming();
-  
+
   // Clear any existing timer
   if (rateLimitTimer) {
     clearInterval(rateLimitTimer);
   }
-  
+
   // Start countdown timer
   rateLimitTimer = setInterval(() => {
     rateLimitRetryIn.value--;
@@ -315,11 +315,16 @@ const streamNextWord = async () => {
 };
 
 const startStreaming = async () => {
-  if (connectionStatus.value !== "connected" || modelStatus.value !== "loaded" || isRateLimited.value) return;
-  
+  if (
+    connectionStatus.value !== "connected" ||
+    modelStatus.value !== "loaded" ||
+    isRateLimited.value
+  )
+    return;
+
   // Check model status first
   const currentModelStatus = await checkModelStatus();
-  if (currentModelStatus !== 'loaded') {
+  if (currentModelStatus !== "loaded") {
     return;
   }
 
@@ -390,11 +395,16 @@ const resetSimulation = () => {
 };
 
 const continueStreaming = async () => {
-  if (connectionStatus.value !== "connected" || modelStatus.value !== "loaded" || isRateLimited.value) return;
-  
+  if (
+    connectionStatus.value !== "connected" ||
+    modelStatus.value !== "loaded" ||
+    isRateLimited.value
+  )
+    return;
+
   // Check model status first
   const currentModelStatus = await checkModelStatus();
-  if (currentModelStatus !== 'loaded') {
+  if (currentModelStatus !== "loaded") {
     return;
   }
 
@@ -467,10 +477,12 @@ onMounted(() => {
             <span class="text-orange-800 font-medium">Rate Limit Reached</span>
           </div>
           <p class="text-orange-700 text-sm mt-1">
-            You've reached the streaming rate limit. Please wait {{ rateLimitRetryIn }} seconds before trying again.
+            You've reached the streaming rate limit. Please wait
+            {{ rateLimitRetryIn }} seconds before trying again.
           </p>
           <p class="text-orange-600 text-xs mt-2">
-            💡 <strong>Tip:</strong> The API allows 5 predictions per minute to ensure fair usage for all users.
+            💡 <strong>Tip:</strong> The API allows 5 predictions per minute to
+            ensure fair usage for all users.
           </p>
         </div>
         <button
@@ -690,14 +702,14 @@ onMounted(() => {
             v-model.number="numWords"
             type="range"
             min="1"
-            max="20"
+            max="15"
             step="1"
             class="w-full h-2 bg-gray-200 rounded-lg appearance-none cursor-pointer slider"
             :disabled="isStreaming || modelStatus !== 'loaded' || isRateLimited"
           />
           <div class="flex justify-between text-xs text-gray-500 mt-1">
             <span>1</span>
-            <span>20</span>
+            <span>15</span>
           </div>
         </div>
       </div>
@@ -722,7 +734,9 @@ onMounted(() => {
           <span v-else-if="modelStatus === 'loading'">Model Loading...</span>
           <span v-else-if="modelStatus === 'not_loaded'">Load Model First</span>
           <span v-else-if="modelStatus === 'error'">Model Error</span>
-          <span v-else-if="isRateLimited">Rate Limited ({{ rateLimitRetryIn }}s)</span>
+          <span v-else-if="isRateLimited"
+            >Rate Limited ({{ rateLimitRetryIn }}s)</span
+          >
           <span v-else>Start Streaming</span>
         </button>
 
@@ -737,11 +751,15 @@ onMounted(() => {
           "
           class="btn-primary"
         >
-          <span v-if="connectionStatus !== 'connected'">Server Disconnected</span>
+          <span v-if="connectionStatus !== 'connected'"
+            >Server Disconnected</span
+          >
           <span v-else-if="modelStatus === 'loading'">Model Loading...</span>
           <span v-else-if="modelStatus === 'not_loaded'">Load Model First</span>
           <span v-else-if="modelStatus === 'error'">Model Error</span>
-          <span v-else-if="isRateLimited">Rate Limited ({{ rateLimitRetryIn }}s)</span>
+          <span v-else-if="isRateLimited"
+            >Rate Limited ({{ rateLimitRetryIn }}s)</span
+          >
           <span v-else>Continue</span>
         </button>
 

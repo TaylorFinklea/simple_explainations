@@ -14,6 +14,8 @@ services:
     volumes:
       # Mount the source code for development (optional)
       - ./src:/app/src:ro
+      # Persist Hugging Face model cache
+      - huggingface_cache:/home/appuser/.cache/huggingface
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
       interval: 30s
@@ -34,6 +36,10 @@ services:
     restart: unless-stopped
     profiles:
       - production
+
+volumes:
+  huggingface_cache:
+    driver: local
 
 networks:
   default:

@@ -1,161 +1,84 @@
-# Deployment Guide for AI Streaming Simulation
+# Deployment Guide
 
-This guide covers how to deploy the AI Streaming Simulation application using Docker containers to various cloud platforms.
+Deploy the AI Word Prediction app to various cloud platforms using Docker.
 
-## 🏗️ Architecture
+## Prerequisites
 
-The application is packaged as a single Docker container that includes:
-- **Frontend**: Vue.js application built with Vite
-- **Backend**: FastAPI server with AI model (SmolLM2-1.7B)
-- **Static File Serving**: FastAPI serves the built frontend assets
+- Docker installed
+- 4GB+ RAM available
+- Internet connection for model download
 
-## 📋 Prerequisites
+## Quick Deploy
 
-- Docker installed on your system
-- At least 4GB RAM available for the container
-- Internet connection for downloading the AI model
-
-## 🔨 Building the Docker Image
-
-1. **Clone and navigate to the project:**
-   ```bash
-   cd simple_explainations/how-ai-works
-   ```
-
-2. **Build the Docker image:**
-   ```bash
-   docker build -t ai-streaming-app .
-   ```
-
-3. **Test locally:**
-   ```bash
-   docker run -p 8000:8000 ai-streaming-app
-   ```
-
-   Visit `http://localhost:8000` to test the application.
-
-## ☁️ Cloud Deployment Options
-
-### 1. Google Cloud Run
-
-**Advantages:** Serverless, automatic scaling, pay-per-use
+### Docker (Local)
 
 ```bash
-# Build and push to Google Container Registry
-gcloud builds submit --tag gcr.io/YOUR_PROJECT_ID/ai-streaming-app
+cd how-ai-works
+docker compose up
+# Visit http://localhost:8000
+```
 
-# Deploy to Cloud Run
+## Cloud Platforms
+
+### Google Cloud Run
+
+```bash
+# Build and deploy
+gcloud builds submit --tag gcr.io/PROJECT_ID/ai-streaming-app
 gcloud run deploy ai-streaming-app \
-  --image gcr.io/YOUR_PROJECT_ID/ai-streaming-app \
+  --image gcr.io/PROJECT_ID/ai-streaming-app \
   --platform managed \
   --region us-central1 \
   --allow-unauthenticated \
   --memory 4Gi \
   --cpu 2 \
-  --timeout 3600 \
-  --set-env-vars="FRONTEND_URL=https://ai-streaming-app-12345.run.app"
+  --timeout 3600
 ```
 
-### 2. AWS App Runner
+### AWS App Runner
 
-**Advantages:** Simple deployment, automatic scaling
-
-1. Push image to Amazon ECR:
+1. Push to ECR:
    ```bash
    aws ecr create-repository --repository-name ai-streaming-app
-   docker tag ai-streaming-app:latest YOUR_ACCOUNT.dkr.ecr.REGION.amazonaws.com/ai-streaming-app:latest
-   docker push YOUR_ACCOUNT.dkr.ecr.REGION.amazonaws.com/ai-streaming-app:latest
+   docker tag ai-streaming-app:latest ACCOUNT.dkr.ecr.REGION.amazonaws.com/ai-streaming-app:latest
+   docker push ACCOUNT.dkr.ecr.REGION.amazonaws.com/ai-streaming-app:latest
    ```
+2. Create App Runner service via console
 
-2. Create App Runner service via AWS Console or CLI
+### Railway / Render
 
-### 3. Azure Container Instances
+1. Connect GitHub repository
+2. Auto-detects Dockerfile
+3. Deploy with one click
+4. Set memory to 4GB+
 
-**Advantages:** Simple container hosting
+## Environment Variables
+
+| Variable | Description | Example |
+|----------|-------------|---------|
+| `PORT` | Server port | `8000` |
+| `FRONTEND_URL` | Main frontend URL | `https://your-app.com` |
+| `ALLOWED_ORIGINS` | CORS origins (comma-separated) | `https://your-app.com,https://www.your-app.com` |
+
+### Production CORS Example
 
 ```bash
-# Create resource group
-az group create --name ai-streaming-rg --location eastus
+# Cloud Run
+gcloud run deploy --set-env-vars="FRONTEND_URL=https://your-app-12345.run.app"
 
-# Create container instance
-az container create \
-  --resource-group ai-streaming-rg \
-  --name ai-streaming-app \
-  --image ai-streaming-app:latest \
-  --cpu 2 \
-  --memory 4 \
-  --ports 8000 \
-  --ip-address Public
+# Docker
+docker run -e FRONTEND_URL=https://your-app.com ai-streaming-app
 ```
 
-### 4. Railway
+## Performance
 
-**Advantages:** Git-based deployment, simple setup
+- **Memory**: 4GB minimum (model needs ~3GB)
+- **CPU**: 2+ cores recommended
+- **First load**: 60-120 seconds (model download)
+- **Cold start**: Expected for serverless platforms
 
-1. Connect your GitHub repository to Railway
-2. Railway will automatically detect the Dockerfile
-3. Set environment variables if needed
-4. Deploy with one click
+## Health Checks
 
-### 5. Render
-
-**Advantages:** Free tier available, automatic deploys
-
-1. Connect your GitHub repository
-2. Create a new Web Service
-3. Use Docker runtime
-4. Set build command: `docker build -t ai-streaming-app .`
-5. Set start command: `docker run -p $PORT:$PORT ai-streaming-app`
-
-## 🔧 Environment Configuration
-
-### Required Environment Variables
-
-- `PORT`: Port number (default: 8000)
-- `PYTHONPATH`: Python path (set to `/app/src`)
-
-### CORS Configuration Variables
-
-For production deployments, set these environment variables to secure CORS:
-
-- `FRONTEND_URL`: Your main frontend URL (e.g., `https://your-app.com`)
-- `ALLOWED_ORIGINS`: Comma-separated list of allowed origins (e.g., `https://your-app.com,https://www.your-app.com`)
-
-**Example for Cloud Run:**
-```bash
-gcloud run deploy ai-streaming-app \
-  --set-env-vars="FRONTEND_URL=https://your-app-12345.run.app,ALLOWED_ORIGINS=https://your-app-12345.run.app"
-```
-
-**Example for Railway:**
-- Set `FRONTEND_URL` to your Railway app URL
-- Set `ALLOWED_ORIGINS` to include your custom domain if you have one
-
-### Optional Configuration
-
-- **Memory**: Minimum 4GB recommended for AI model
-- **CPU**: 2+ cores recommended for better performance
-- **Timeout**: Set to 300+ seconds for model loading
-
-## 🚀 Performance Optimization
-
-### Model Loading
-- The AI model (~3.4GB) is downloaded on first startup
-- Consider using a persistent volume for model caching
-- Cold start time: 60-120 seconds
-
-### Scaling Considerations
-- Each instance loads its own model copy
-- Consider using model caching services for multiple instances
-- Monitor memory usage (model requires ~3-4GB RAM)
-
-## 🏥 Health Checks
-
-The application provides health check endpoints:
-- `GET /health` - Basic health check
-- `GET /api/health` - API health with model status
-
-Example health check configuration:
 ```yaml
 healthcheck:
   test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
@@ -165,82 +88,66 @@ healthcheck:
   start_period: 60s
 ```
 
-## 🔍 Monitoring
+## Troubleshooting
 
-### Logs
-- Application logs are sent to stdout
-- Model loading progress is logged
-- API request/response logging available
+### Model Loading Fails
 
-### Metrics to Monitor
-- Memory usage (should be ~4GB)
-- CPU usage during inference
-- Response times
-- Health check status
+```bash
+# Check logs
+docker logs <container-id>
 
-## 🛠️ Troubleshooting
+# Permission errors (rebuild)
+docker compose down
+docker volume rm how-ai-works_huggingface_cache
+docker compose build --no-cache
+docker compose up
+```
 
 ### Common Issues
 
-1. **Container OOM (Out of Memory)**
-   - Increase memory allocation to 4GB+
-   - Check if model is loading properly
-
-2. **Slow Cold Starts**
-   - Expected on first request (model loading)
-   - Consider keeping container warm
-
-3. **Model Loading Failures**
-   - Check internet connection for model download
-   - Verify sufficient disk space (4GB+)
-
-4. **CORS Issues**
-   - Application is configured for flexible CORS
-   - Check browser developer tools for errors
+| Problem | Solution |
+|---------|----------|
+| Out of memory | Increase to 4GB+ RAM |
+| Permission errors | Clean rebuild (see above) |
+| Slow cold starts | Expected - model loading takes time |
+| CORS errors | Set `FRONTEND_URL` and `ALLOWED_ORIGINS` |
 
 ### Debug Commands
 
 ```bash
-# Check container logs
-docker logs <container-id>
-
-# Get container stats
+# Container stats
 docker stats <container-id>
 
-# Access container shell
+# Shell access
 docker exec -it <container-id> /bin/bash
+
+# Cache cleanup
+./scripts/cleanup-cache.sh docker
 ```
 
-## 📱 Frontend Configuration
+## Cost Estimates (Monthly)
 
-The frontend automatically adapts to the deployment environment:
-- **Development**: Uses `http://localhost:8000/api`
-- **Production**: Uses relative URLs `/api`
+| Platform | Cost |
+|----------|------|
+| Google Cloud Run | $10-30 |
+| AWS App Runner | $15-40 |
+| Railway | $5-20 |
+| Render | Free tier / $7+ |
 
-No additional frontend configuration required for deployment.
+## Security
 
-## 🔐 Security Considerations
+- Runs as non-root user in container
+- CORS properly configured
+- Rate limiting: 15 requests/minute
+- No sensitive data stored
 
-- The application runs as a single-user container
-- No sensitive data is stored in the container
-- API endpoints are public (consider adding authentication for production)
-- **CORS is properly configured**: Set `FRONTEND_URL` and `ALLOWED_ORIGINS` environmentpermissively (restrict for production)
+## Architecture
 
-## 💰 Cost Estimation
+```
+Docker Container
+├── Vue.js Frontend (built)
+├── FastAPI Backend
+└── HuggingFace Model Cache
+```
 
-### Typical Monthly Costs (US regions):
-- **Google Cloud Run**: $10-30 (pay per use)
-- **AWS App Runner**: $15-40 (minimum charge applies)
-- **Azure Container Instances**: $20-50 (always-on pricing)
-- **Railway**: $5-20 (usage-based)
-- **Render**: Free tier available, $7+ for paid plans
-
-## 📞 Support
-
-For deployment issues:
-1. Check the health endpoints
-2. Review container logs
-3. Verify resource allocation (4GB+ RAM)
-4. Ensure network connectivity for model downloads
-
-The application should be accessible at your deployed URL within 2-3 minutes of container startup.
+Single container serves both frontend and API, downloads AI model on first startup.

@@ -19,6 +19,13 @@ RUN npx vite build
 # Python backend stage
 FROM python:3.11-slim
 
+# Create non-root user
+RUN groupadd -r appuser && useradd --no-log-init -r -g appuser appuser
+
+# Create Hugging Face cache directory with proper permissions
+RUN mkdir -p /home/appuser/.cache/huggingface && \
+    chown -R appuser:appuser /home/appuser
+
 # Set working directory
 WORKDIR /app
 
@@ -44,15 +51,28 @@ COPY --from=frontend-builder /app/frontend/dist ./static
 RUN echo '#!/bin/bash\nexec python -m uvicorn how_ai_works.api:app --host 0.0.0.0 --port $PORT' > start.sh && \
     chmod +x start.sh
 
+# Change ownership of application files to non-root user
+RUN chown -R appuser:appuser /app
+
+# Ensure cache directory permissions are correct
+RUN chown -R appuser:appuser /home/appuser/.cache
+
+# Change to non-root user before CMD
+USER appuser
+
 # Expose port (default to 8000, but allow override with PORT env var)
 EXPOSE 8000
 
 # Set environment variables
 ENV PORT=8000
 ENV PYTHONPATH=/app/src
+ENV HF_HOME=/home/appuser/.cache/huggingface
 # CORS configuration (override these in production)
 # ENV FRONTEND_URL=https://your-app.com
 # ENV ALLOWED_ORIGINS=https://your-app.com,https://www.your-app.com
+
+# Add security options
+LABEL security.scan=true
 
 # Health check
 HEALTHCHECK --interval=30s --timeout=30s --start-period=5s --retries=3 \

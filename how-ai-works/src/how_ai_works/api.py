@@ -24,7 +24,7 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
-limiter = Limiter(key_func=get_remote_address, default_limits=["5/minute"])
+limiter = Limiter(key_func=get_remote_address, default_limits=["15/minute"])
 
 app = FastAPI(
     title="AI Word Prediction API",
@@ -315,7 +315,7 @@ async def serve_frontend():
         return {"message": "AI Word Prediction API is running"}
 
 @app.post("/api/predict", response_model=PredictionResponse)
-@app.state.limiter.limit("20/minute")
+@app.state.limiter.limit("15/minute")
 async def predict_next_word(request: Request, payload: PredictionRequest):
     """Predict the next word given an input phrase"""
 

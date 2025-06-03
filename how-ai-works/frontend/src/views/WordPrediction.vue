@@ -8,6 +8,12 @@ interface PredictionResult {
   tokenId: number
 }
 
+interface PredictionResponse {
+  word: string
+  probability: number
+  token_id: number
+}
+
 const inputPhrase = ref('The wheels on the bus go')
 const topKTokens = ref(5)
 const predictions = ref<PredictionResult[]>([])
@@ -19,7 +25,7 @@ const continuingWithWord = ref('')
 const isLoadingModel = ref(false)
 const isRateLimited = ref(false)
 const rateLimitRetryIn = ref(0)
-let rateLimitTimer: number | null = null
+let rateLimitTimer: ReturnType<typeof setInterval> | null = null
 
 const checkModelStatus = async () => {
   try {
@@ -62,7 +68,11 @@ const loadModel = async () => {
     }
   } catch (err: unknown) {
     modelStatus.value = 'error'
-    error.value = `Model loading failed: ${err instanceof Error ? err.message : String(err)}`
+    if (err instanceof Error) {
+      error.value = `Model loading failed: ${err.message}`
+    } else {
+      error.value = 'An unknown error occurred during model loading'
+    }
     console.error('Model loading error:', err)
   } finally {
     isLoadingModel.value = false
@@ -145,7 +155,7 @@ const runPrediction = async () => {
     }
 
     const result = await response.json()
-    predictions.value = result.predictions.map((pred: any) => ({
+    predictions.value = result.predictions.map((pred: PredictionResponse) => ({
       word: pred.word,
       probability: pred.probability,
       tokenId: pred.token_id
@@ -160,11 +170,15 @@ const runPrediction = async () => {
     }
 
   } catch (err: unknown) {
-    if (err instanceof Error && err.name === 'TypeError' && err.message.includes('fetch')) {
-      error.value = 'Cannot connect to AI server. Make sure the backend is running on http://localhost:8000'
-      connectionStatus.value = 'disconnected'
+    if (err instanceof Error) {
+      if (err.name === 'TypeError' && err.message.includes('fetch')) {
+        error.value = 'Cannot connect to AI server. Make sure the backend is running on http://localhost:8000'
+        connectionStatus.value = 'disconnected'
+      } else {
+        error.value = `Failed to get predictions: ${err.message}`
+      }
     } else {
-      error.value = `Failed to get predictions: ${err instanceof Error ? err.message : String(err)}`
+      error.value = 'An unknown error occurred'
     }
     console.error('Prediction error:', err)
   } finally {
@@ -241,7 +255,11 @@ const checkServerConnection = async () => {
       connectionStatus.value = 'disconnected'
     }
   } catch (err: unknown) {
-    console.error('Server connection failed:', err)
+    if (err instanceof Error) {
+      console.error('Server connection failed:', err.message)
+    } else {
+      console.error('Server connection failed:', err)
+    }
     connectionStatus.value = 'disconnected'
   }
 }
