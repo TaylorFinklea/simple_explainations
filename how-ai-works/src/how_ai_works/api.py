@@ -3,7 +3,6 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.middleware.trustedhost import TrustedHostMiddleware
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse, JSONResponse
-from starlette.middleware.httpsredirect import HTTPSRedirectMiddleware
 from slowapi import Limiter
 from slowapi.util import get_remote_address
 from slowapi.errors import RateLimitExceeded
@@ -90,9 +89,7 @@ app.add_middleware(
     allowed_hosts=["*"]  # Allows all hosts, adjust as needed for production
 )
 
-# Add HTTPSRedirectMiddleware to redirect HTTP to HTTPS
-# Ensure your server is configured for HTTPS for this to work correctly
-app.add_middleware(HTTPSRedirectMiddleware)
+
 
 @app.middleware("http")
 async def add_security_headers(request: Request, call_next):
