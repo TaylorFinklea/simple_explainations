@@ -60,13 +60,43 @@ jobs:
             --memory=4Gi
             --cpu=2
             --timeout=3600
-            --max-instances=10
+            --max-instances=2
             --concurrency=80
             --port=8000
-            --set-env-vars=PORT=8000
+
 
       - name: Show Output
         run: echo ${{ steps.deploy.outputs.url }}
+
+      - name: Update service with CORS configuration
+        run: |
+          SERVICE_URL="${{ steps.deploy.outputs.url }}"
+          
+          # Use custom domain if provided, otherwise use auto-detected Cloud Run URL
+          if [ -n "${{ secrets.CUSTOM_FRONTEND_URL }}" ]; then
+            FRONTEND_URL="${{ secrets.CUSTOM_FRONTEND_URL }}"
+            echo "Using custom frontend URL: $FRONTEND_URL"
+          else
+            FRONTEND_URL="$SERVICE_URL"
+            echo "Using auto-detected Cloud Run URL: $FRONTEND_URL"
+          fi
+          
+          if [ -n "${{ secrets.CUSTOM_ALLOWED_ORIGINS }}" ]; then
+            ALLOWED_ORIGINS="${{ secrets.CUSTOM_ALLOWED_ORIGINS }}"
+            echo "Using custom allowed origins: $ALLOWED_ORIGINS"
+          else
+            ALLOWED_ORIGINS="$SERVICE_URL"
+            echo "Using auto-detected allowed origins: $ALLOWED_ORIGINS"
+          fi
+          
+          echo "Updating service with CORS configuration..."
+          gcloud run services update ${{ env.SERVICE }} \
+            --region=${{ env.REGION }} \
+            --set-env-vars="FRONTEND_URL=$FRONTEND_URL,ALLOWED_ORIGINS=$ALLOWED_ORIGINS"
+          
+          echo "✅ Service updated with CORS configuration"
+          echo "Frontend URL: $FRONTEND_URL"
+          echo "Allowed Origins: $ALLOWED_ORIGINS"
 
       - name: Create deployment summary
         run: |
