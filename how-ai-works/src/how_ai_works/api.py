@@ -379,11 +379,11 @@ async def predict_next_word(request: Request, payload: PredictionRequest):
                 # Additional safety: filter out control characters from predictions
                 predicted_word = re.sub(r'[\x00-\x1f\x7f-\x9f]', '', predicted_word)
 
-                # Filter out empty, whitespace-only, or suspicious tokens
+                # Filter out empty, whitespace-only, or truly problematic tokens
                 if (predicted_word and
                     len(predicted_word) > 0 and
                     len(predicted_word) <= 50 and  # Reasonable word length limit
-                    not re.search(r'^[^\w\s-]+$', predicted_word)):  # Not just special chars
+                    not re.search(r'^[<>{}[\]\\|`~@#$%^&*+=]+$', predicted_word)):  # Block problematic chars only
 
                     predictions.append(PredictionResult(
                         word=predicted_word,
