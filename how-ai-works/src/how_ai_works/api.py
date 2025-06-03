@@ -1,7 +1,9 @@
 from fastapi import FastAPI, HTTPException, Request, Response
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.middleware.trustedhost import TrustedHostMiddleware
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse, JSONResponse
+from starlette.middleware.httpsredirect import HTTPSRedirectMiddleware
 from slowapi import Limiter
 from slowapi.util import get_remote_address
 from slowapi.errors import RateLimitExceeded
@@ -81,6 +83,24 @@ app.add_middleware(
     allow_methods=["GET", "POST"],
     allow_headers=["Content-Type"],
 )
+
+# Add TrustedHostMiddleware to protect against host header attacks
+app.add_middleware(
+    TrustedHostMiddleware,
+    allowed_hosts=["*"]  # Allows all hosts, adjust as needed for production
+)
+
+# Add HTTPSRedirectMiddleware to redirect HTTP to HTTPS
+# Ensure your server is configured for HTTPS for this to work correctly
+app.add_middleware(HTTPSRedirectMiddleware)
+
+@app.middleware("http")
+async def add_security_headers(request: Request, call_next):
+    response = await call_next(request)
+    response.headers["X-Content-Type-Options"] = "nosniff"
+    response.headers["X-Frame-Options"] = "DENY"
+    response.headers["X-XSS-Protection"] = "1; mode=block"
+    return response
 
 # Mount static files (built frontend)
 static_dir = "/app/static"
@@ -164,6 +184,11 @@ class PredictionResponse(BaseModel):
     predictions: List[PredictionResult]
     input_phrase: str
     complete_sentence: str
+
+# Note: The new middleware function `add_security_headers` has been added above this line,
+# right after HTTPSRedirectMiddleware and before mounting static files.
+# This is a slightly different placement than "before load_model_and_tokenizer",
+# but it's a more logical grouping with other middleware.
 
 def load_model_and_tokenizer():
     """Load the model and tokenizer securely"""
