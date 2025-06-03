@@ -17,6 +17,9 @@ const connectionStatus = ref<'checking' | 'connected' | 'disconnected'>('checkin
 const modelStatus = ref<'not_loaded' | 'loading' | 'loaded' | 'error'>('not_loaded')
 const continuingWithWord = ref('')
 const isLoadingModel = ref(false)
+const isRateLimited = ref(false)
+const rateLimitRetryIn = ref(0)
+let rateLimitTimer: number | null = null
 
 const checkModelStatus = async () => {
   try {
@@ -130,8 +133,15 @@ const runPrediction = async () => {
     })
 
     if (!response.ok) {
-      const errorData = await response.json()
-      throw new Error(errorData.detail || `HTTP error! status: ${response.status}`)
+      if (response.status === 429) {
+        // Handle rate limiting
+        const errorData = await response.json()
+        handleRateLimit()
+        return
+      } else {
+        const errorData = await response.json()
+        throw new Error(errorData.detail || `HTTP error! status: ${response.status}`)
+      }
     }
 
     const result = await response.json()
@@ -140,6 +150,14 @@ const runPrediction = async () => {
       probability: pred.probability,
       tokenId: pred.token_id
     }))
+
+    // Clear any rate limiting state on successful request
+    isRateLimited.value = false
+    rateLimitRetryIn.value = 0
+    if (rateLimitTimer) {
+      clearInterval(rateLimitTimer)
+      rateLimitTimer = null
+    }
 
   } catch (err: unknown) {
     if (err instanceof Error && err.name === 'TypeError' && err.message.includes('fetch')) {
@@ -170,6 +188,39 @@ const continueWithPrediction = async (word: string) => {
   
   // Clear the continuing state
   continuingWithWord.value = ''
+}
+
+const handleRateLimit = () => {
+  isRateLimited.value = true
+  rateLimitRetryIn.value = 60 // 60 seconds countdown
+  
+  // Clear any existing timer
+  if (rateLimitTimer) {
+    clearInterval(rateLimitTimer)
+  }
+  
+  // Start countdown timer
+  rateLimitTimer = setInterval(() => {
+    rateLimitRetryIn.value--
+    if (rateLimitRetryIn.value <= 0) {
+      isRateLimited.value = false
+      if (rateLimitTimer) {
+        clearInterval(rateLimitTimer)
+        rateLimitTimer = null
+      }
+    }
+  }, 1000)
+}
+
+const retryAfterRateLimit = () => {
+  isRateLimited.value = false
+  rateLimitRetryIn.value = 0
+  if (rateLimitTimer) {
+    clearInterval(rateLimitTimer)
+    rateLimitTimer = null
+  }
+  // Automatically try the prediction again
+  runPrediction()
 }
 
 const clearPhrase = () => {
@@ -224,6 +275,34 @@ onMounted(() => {
       </p>
       <div class="bg-gray-100 p-2 rounded text-sm">
         <code>cd how-ai-works && uv run ai-server</code>
+      </div>
+    </div>
+
+    <!-- Rate Limit Status Card -->
+    <div v-if="isRateLimited" class="card mb-6 bg-orange-50 border-orange-200">
+      <div class="flex items-center justify-between">
+        <div>
+          <div class="flex items-center space-x-2">
+            <div class="w-3 h-3 bg-orange-600 rounded-full"></div>
+            <span class="text-orange-800 font-medium">Rate Limit Reached</span>
+          </div>
+          <p class="text-orange-700 text-sm mt-1">
+            You've made too many predictions recently. Please wait {{ rateLimitRetryIn }} seconds before trying again.
+          </p>
+          <p class="text-orange-600 text-xs mt-2">
+            💡 <strong>Tip:</strong> The API allows 5 predictions per minute to ensure fair usage for all users.
+          </p>
+        </div>
+        <button
+          v-if="rateLimitRetryIn <= 0"
+          @click="retryAfterRateLimit"
+          class="btn-primary"
+        >
+          Try Again
+        </button>
+        <div v-else class="text-orange-600 font-mono text-lg">
+          {{ rateLimitRetryIn }}s
+        </div>
       </div>
     </div>
 
@@ -330,7 +409,7 @@ onMounted(() => {
           <div class="flex space-x-2">
             <button
               @click="runPrediction"
-              :disabled="isLoading || connectionStatus !== 'connected' || modelStatus !== 'loaded'"
+              :disabled="isLoading || connectionStatus !== 'connected' || modelStatus !== 'loaded' || isRateLimited"
               class="btn-primary"
             >
               <span v-if="isLoading">Predicting...</span>
@@ -338,6 +417,7 @@ onMounted(() => {
               <span v-else-if="modelStatus === 'loading'">Model Loading...</span>
               <span v-else-if="modelStatus === 'not_loaded'">Load Model First</span>
               <span v-else-if="modelStatus === 'error'">Model Error</span>
+              <span v-else-if="isRateLimited">Rate Limited ({{ rateLimitRetryIn }}s)</span>
               <span v-else>Predict Next Word</span>
             </button>
             
@@ -437,10 +517,10 @@ onMounted(() => {
                 <td class="px-4 py-3 text-sm font-medium text-gray-900">
                   <button
                     @click="continueWithPrediction(prediction.word)"
-                    :disabled="isLoading || continuingWithWord !== ''"
+                    :disabled="isLoading || continuingWithWord !== '' || isRateLimited"
                     class="px-3 py-1 rounded-md bg-blue-50 hover:bg-blue-100 text-blue-800 border border-blue-200 transition-colors duration-200 disabled:opacity-50 disabled:cursor-not-allowed font-medium"
                     :class="{ 'animate-pulse': continuingWithWord === prediction.word }"
-                    :title="`Click to add '${prediction.word}' to your phrase`"
+                    :title="isRateLimited ? 'Rate limited - please wait' : `Click to add '${prediction.word}' to your phrase`"
                   >
                     <span v-if="continuingWithWord === prediction.word">⏳ Adding...</span>
                     <span v-else>{{ prediction.word }}</span>

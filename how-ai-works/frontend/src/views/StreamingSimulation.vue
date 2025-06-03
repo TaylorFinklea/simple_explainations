@@ -32,6 +32,8 @@ const modelStatus = ref<"not_loaded" | "loading" | "loaded" | "error">(
   "not_loaded",
 );
 const isLoadingModel = ref(false);
+const isRateLimited = ref(false);
+const rateLimitRetryIn = ref(0);
 const currentStep = ref(0);
 const currentRound = ref(1);
 const streamingHistory = ref<StreamingStep[]>([]);
@@ -43,6 +45,7 @@ const isHistoryCollapsed = ref(true);
 
 let streamingInterval: number | null = null;
 let countdownInterval: number | null = null;
+let rateLimitTimer: number | null = null;
 
 const formatPercentage = (probability: number) => {
   return (probability * 100).toFixed(1) + "%";
@@ -149,10 +152,24 @@ const getPredictions = async (phrase: string) => {
     });
 
     if (!response.ok) {
+      if (response.status === 429) {
+        // Handle rate limiting
+        handleRateLimit();
+        return [];
+      }
       throw new Error(`HTTP error! status: ${response.status}`);
     }
 
     const result = await response.json();
+    
+    // Clear any rate limiting state on successful request
+    isRateLimited.value = false;
+    rateLimitRetryIn.value = 0;
+    if (rateLimitTimer) {
+      clearInterval(rateLimitTimer);
+      rateLimitTimer = null;
+    }
+    
     return result.predictions
       .map((pred: any) => ({
         word: pred.word,
@@ -165,6 +182,40 @@ const getPredictions = async (phrase: string) => {
   } catch (err) {
     console.error("Prediction error:", err);
     return [];
+  }
+};
+
+const handleRateLimit = () => {
+  isRateLimited.value = true;
+  rateLimitRetryIn.value = 60; // 60 seconds countdown
+  
+  // Stop any ongoing streaming
+  stopStreaming();
+  
+  // Clear any existing timer
+  if (rateLimitTimer) {
+    clearInterval(rateLimitTimer);
+  }
+  
+  // Start countdown timer
+  rateLimitTimer = setInterval(() => {
+    rateLimitRetryIn.value--;
+    if (rateLimitRetryIn.value <= 0) {
+      isRateLimited.value = false;
+      if (rateLimitTimer) {
+        clearInterval(rateLimitTimer);
+        rateLimitTimer = null;
+      }
+    }
+  }, 1000);
+};
+
+const retryAfterRateLimit = () => {
+  isRateLimited.value = false;
+  rateLimitRetryIn.value = 0;
+  if (rateLimitTimer) {
+    clearInterval(rateLimitTimer);
+    rateLimitTimer = null;
   }
 };
 
@@ -264,12 +315,11 @@ const streamNextWord = async () => {
 };
 
 const startStreaming = async () => {
-  if (connectionStatus.value !== "connected" || modelStatus.value !== "loaded")
-    return;
-
+  if (connectionStatus.value !== "connected" || modelStatus.value !== "loaded" || isRateLimited.value) return;
+  
   // Check model status first
   const currentModelStatus = await checkModelStatus();
-  if (currentModelStatus !== "loaded") {
+  if (currentModelStatus !== 'loaded') {
     return;
   }
 
@@ -340,12 +390,11 @@ const resetSimulation = () => {
 };
 
 const continueStreaming = async () => {
-  if (connectionStatus.value !== "connected" || modelStatus.value !== "loaded")
-    return;
-
+  if (connectionStatus.value !== "connected" || modelStatus.value !== "loaded" || isRateLimited.value) return;
+  
   // Check model status first
   const currentModelStatus = await checkModelStatus();
-  if (currentModelStatus !== "loaded") {
+  if (currentModelStatus !== 'loaded') {
     return;
   }
 
@@ -406,6 +455,34 @@ onMounted(() => {
       </p>
       <div class="bg-gray-100 p-2 rounded text-sm">
         <code>cd how-ai-works && uv run ai-server</code>
+      </div>
+    </div>
+
+    <!-- Rate Limit Status Card -->
+    <div v-if="isRateLimited" class="card mb-6 bg-orange-50 border-orange-200">
+      <div class="flex items-center justify-between">
+        <div>
+          <div class="flex items-center space-x-2">
+            <div class="w-3 h-3 bg-orange-600 rounded-full"></div>
+            <span class="text-orange-800 font-medium">Rate Limit Reached</span>
+          </div>
+          <p class="text-orange-700 text-sm mt-1">
+            You've reached the streaming rate limit. Please wait {{ rateLimitRetryIn }} seconds before trying again.
+          </p>
+          <p class="text-orange-600 text-xs mt-2">
+            💡 <strong>Tip:</strong> The API allows 5 predictions per minute to ensure fair usage for all users.
+          </p>
+        </div>
+        <button
+          v-if="rateLimitRetryIn <= 0"
+          @click="retryAfterRateLimit"
+          class="btn-primary"
+        >
+          Try Again
+        </button>
+        <div v-else class="text-orange-600 font-mono text-lg">
+          {{ rateLimitRetryIn }}s
+        </div>
       </div>
     </div>
 
@@ -520,7 +597,7 @@ onMounted(() => {
             type="text"
             class="input-field"
             placeholder="Enter starting phrase..."
-            :disabled="isStreaming || modelStatus !== 'loaded'"
+            :disabled="isStreaming || modelStatus !== 'loaded' || isRateLimited"
           />
         </div>
 
@@ -541,7 +618,7 @@ onMounted(() => {
             max="5"
             step="0.5"
             class="w-full h-2 bg-gray-200 rounded-lg appearance-none cursor-pointer slider"
-            :disabled="isStreaming || modelStatus !== 'loaded'"
+            :disabled="isStreaming || modelStatus !== 'loaded' || isRateLimited"
           />
           <div class="flex justify-between text-xs text-gray-500 mt-1">
             <span>0.5s</span>
@@ -566,7 +643,7 @@ onMounted(() => {
             max="2.0"
             step="0.1"
             class="w-full h-2 bg-gray-200 rounded-lg appearance-none cursor-pointer slider"
-            :disabled="isStreaming || modelStatus !== 'loaded'"
+            :disabled="isStreaming || modelStatus !== 'loaded' || isRateLimited"
           />
           <div class="flex justify-between text-xs text-gray-500 mt-1">
             <span>0.0 (focused)</span>
@@ -591,7 +668,7 @@ onMounted(() => {
             max="10"
             step="1"
             class="w-full h-2 bg-gray-200 rounded-lg appearance-none cursor-pointer slider"
-            :disabled="isStreaming || modelStatus !== 'loaded'"
+            :disabled="isStreaming || modelStatus !== 'loaded' || isRateLimited"
           />
           <div class="flex justify-between text-xs text-gray-500 mt-1">
             <span>1</span>
@@ -616,7 +693,7 @@ onMounted(() => {
             max="20"
             step="1"
             class="w-full h-2 bg-gray-200 rounded-lg appearance-none cursor-pointer slider"
-            :disabled="isStreaming || modelStatus !== 'loaded'"
+            :disabled="isStreaming || modelStatus !== 'loaded' || isRateLimited"
           />
           <div class="flex justify-between text-xs text-gray-500 mt-1">
             <span>1</span>
@@ -634,7 +711,8 @@ onMounted(() => {
           :disabled="
             isStreaming ||
             connectionStatus !== 'connected' ||
-            modelStatus !== 'loaded'
+            modelStatus !== 'loaded' ||
+            isRateLimited
           "
           class="btn-primary"
         >
@@ -644,6 +722,7 @@ onMounted(() => {
           <span v-else-if="modelStatus === 'loading'">Model Loading...</span>
           <span v-else-if="modelStatus === 'not_loaded'">Load Model First</span>
           <span v-else-if="modelStatus === 'error'">Model Error</span>
+          <span v-else-if="isRateLimited">Rate Limited ({{ rateLimitRetryIn }}s)</span>
           <span v-else>Start Streaming</span>
         </button>
 
@@ -653,16 +732,16 @@ onMounted(() => {
           :disabled="
             isStreaming ||
             connectionStatus !== 'connected' ||
-            modelStatus !== 'loaded'
+            modelStatus !== 'loaded' ||
+            isRateLimited
           "
           class="btn-primary"
         >
-          <span v-if="connectionStatus !== 'connected'"
-            >Server Disconnected</span
-          >
+          <span v-if="connectionStatus !== 'connected'">Server Disconnected</span>
           <span v-else-if="modelStatus === 'loading'">Model Loading...</span>
           <span v-else-if="modelStatus === 'not_loaded'">Load Model First</span>
           <span v-else-if="modelStatus === 'error'">Model Error</span>
+          <span v-else-if="isRateLimited">Rate Limited ({{ rateLimitRetryIn }}s)</span>
           <span v-else>Continue</span>
         </button>
 

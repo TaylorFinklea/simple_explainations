@@ -99,34 +99,34 @@ model_name = "HuggingFaceTB/SmolLM2-1.7B"  # The model being used
 
 class PredictionRequest(BaseModel):
     input_phrase: str = Field(
-        ..., 
-        min_length=1, 
-        max_length=200, 
+        ...,
+        min_length=1,
+        max_length=200,
         description="The input phrase to predict the next word for (max 200 characters)"
     )
     top_k_tokens: int = Field(
-        default=5, 
-        ge=1, 
-        le=10, 
+        default=5,
+        ge=1,
+        le=10,
         description="Number of top predictions to return (max 10)"
     )
-    
+
     @validator('input_phrase')
     def validate_input_phrase(cls, v):
         """Validate and sanitize input phrase"""
         if not v or not v.strip():
             raise ValueError('Input phrase cannot be empty')
-        
+
         # Remove control characters and excessive whitespace
         sanitized = re.sub(r'[\x00-\x1f\x7f-\x9f]', '', v)
         sanitized = re.sub(r'\s+', ' ', sanitized).strip()
-        
+
         if len(sanitized) == 0:
             raise ValueError('Input phrase cannot be empty after sanitization')
-        
+
         if len(sanitized) > 200:
             raise ValueError('Input phrase too long (max 200 characters)')
-        
+
         # Basic content filtering - reject potentially malicious patterns
         malicious_patterns = [
             r'<script[^>]*>',
@@ -137,17 +137,17 @@ class PredictionRequest(BaseModel):
             r'eval\s*\(',
             r'expression\s*\(',
         ]
-        
+
         for pattern in malicious_patterns:
             if re.search(pattern, sanitized, re.IGNORECASE):
                 raise ValueError('Input contains potentially malicious content')
-        
+
         # Check for excessive repetition (potential DoS)
         if re.search(r'(.{10,})\1{3,}', sanitized):
             raise ValueError('Input contains excessive repetition')
-        
+
         return sanitized
-    
+
     @validator('top_k_tokens')
     def validate_top_k(cls, v):
         """Validate top_k_tokens parameter"""
@@ -168,30 +168,30 @@ class PredictionResponse(BaseModel):
 def load_model_and_tokenizer():
     """Load the model and tokenizer securely"""
     global model, tokenizer, model_loading_status
-    
+
     if model is None or tokenizer is None:
         model_loading_status = "loading"
         model_name = "HuggingFaceTB/SmolLM2-1.7B"
-        
+
         try:
             logger.info(f"Loading tokenizer for {model_name}...")
-            
+
             # Load tokenizer with safety measures
             tokenizer = AutoTokenizer.from_pretrained(
-                model_name, 
+                model_name,
                 trust_remote_code=False,  # More secure - don't execute arbitrary code
                 use_fast=True,  # Use fast tokenizer when available
                 local_files_only=False,  # Allow download but with verification
             )
-            
+
             # Some models don't have a pad token, so we set it to eos_token
             if tokenizer.pad_token is None:
                 tokenizer.pad_token = tokenizer.eos_token
-            
+
             logger.info("Tokenizer loaded successfully.")
-            
+
             logger.info(f"Loading model {model_name}...")
-            
+
             # Load model with safety measures
             model = AutoModelForCausalLM.from_pretrained(
                 model_name,
@@ -202,18 +202,18 @@ def load_model_and_tokenizer():
                 use_safetensors=True,  # Use safer tensor format when available
                 low_cpu_mem_usage=True,  # More efficient memory usage
             )
-            
+
             # Set model to evaluation mode for inference
             model.eval()
-            
+
             logger.info("Model loaded successfully!")
             model_loading_status = "loaded"
-            
+
         except Exception as e:
             logger.error(f"Failed to load model or tokenizer: {str(e)}")
             model_loading_status = "error"
             raise HTTPException(
-                status_code=500, 
+                status_code=500,
                 detail=f"Failed to initialize AI model: {str(e)}"
             )
 
@@ -279,19 +279,19 @@ async def get_model_status():
 async def load_model():
     """Trigger model loading"""
     global model_loading_status
-    
+
     if model_loading_status == "loading":
         return {
             "status": "already_loading",
             "message": "Model is already being loaded"
         }
-    
+
     if model_loading_status == "loaded":
         return {
-            "status": "already_loaded", 
+            "status": "already_loaded",
             "message": "Model is already loaded and ready"
         }
-    
+
     try:
         load_model_and_tokenizer()
         return {
@@ -315,28 +315,28 @@ async def serve_frontend():
         return {"message": "AI Word Prediction API is running"}
 
 @app.post("/api/predict", response_model=PredictionResponse)
-@app.state.limiter.limit()
+@app.state.limiter.limit("20/minute")
 async def predict_next_word(request: Request, payload: PredictionRequest):
     """Predict the next word given an input phrase"""
-    
+
     # Log the request for monitoring
     logger.info(f"Prediction request: phrase_length={len(payload.input_phrase)}, top_k={payload.top_k_tokens}")
-    
+
     # Ensure model is loaded
     ensure_model_loaded()
-    
+
     if model is None or tokenizer is None:
         logger.error("Model or tokenizer not loaded")
         raise HTTPException(status_code=500, detail="Model not loaded")
-    
+
     try:
         # Additional input validation (Pydantic validators already ran)
         input_phrase = payload.input_phrase.strip()
-        
+
         # Tokenize the input phrase with safety measures
         try:
             input_ids = tokenizer.encode(
-                input_phrase, 
+                input_phrase,
                 return_tensors="pt",
                 max_length=512,  # Limit token length
                 truncation=True,  # Truncate if too long
@@ -345,11 +345,11 @@ async def predict_next_word(request: Request, payload: PredictionRequest):
         except Exception as e:
             logger.error(f"Tokenization failed: {str(e)}")
             raise HTTPException(status_code=400, detail="Failed to process input text")
-        
+
         # Check if input is too long after tokenization
         if input_ids.shape[1] > 100:  # Reasonable limit for this application
             raise HTTPException(status_code=400, detail="Input phrase is too long")
-        
+
         # Get model predictions with timeout protection
         with torch.no_grad():
             try:
@@ -358,33 +358,33 @@ async def predict_next_word(request: Request, payload: PredictionRequest):
             except Exception as e:
                 logger.error(f"Model inference failed: {str(e)}")
                 raise HTTPException(status_code=500, detail="AI model processing failed")
-        
+
         # Convert logits to probabilities
         probabilities = F.softmax(logits, dim=-1)
-        
+
         # Get top-k predictions
         top_k_probs, top_k_indices = torch.topk(probabilities, payload.top_k_tokens)
-        
+
         # Format results with additional safety checks
         predictions = []
         for i in range(payload.top_k_tokens):
             token_id = top_k_indices[i].item()
             prob = top_k_probs[i].item()
-            
+
             # Decode the predicted token safely
             try:
                 predicted_word = tokenizer.decode([token_id], skip_special_tokens=True)
                 predicted_word = predicted_word.strip()
-                
+
                 # Additional safety: filter out control characters from predictions
                 predicted_word = re.sub(r'[\x00-\x1f\x7f-\x9f]', '', predicted_word)
-                
+
                 # Filter out empty, whitespace-only, or suspicious tokens
-                if (predicted_word and 
-                    len(predicted_word) > 0 and 
+                if (predicted_word and
+                    len(predicted_word) > 0 and
                     len(predicted_word) <= 50 and  # Reasonable word length limit
                     not re.search(r'^[^\w\s-]+$', predicted_word)):  # Not just special chars
-                    
+
                     predictions.append(PredictionResult(
                         word=predicted_word,
                         probability=prob,
@@ -393,25 +393,25 @@ async def predict_next_word(request: Request, payload: PredictionRequest):
             except Exception as e:
                 logger.warning(f"Failed to decode token {token_id}: {str(e)}")
                 continue
-        
+
         # If no valid predictions after filtering, return error
         if not predictions:
             logger.warning("No valid predictions generated")
             raise HTTPException(status_code=500, detail="No valid word predictions available")
-        
+
         # Create complete sentence with top prediction
         best_word = predictions[0].word if predictions else ""
         complete_sentence = f"{input_phrase} {best_word}".strip()
-        
+
         # Log successful prediction
         logger.info(f"Successful prediction: {len(predictions)} results generated")
-        
+
         return PredictionResponse(
             predictions=predictions,
             input_phrase=input_phrase,
             complete_sentence=complete_sentence
         )
-        
+
     except HTTPException:
         # Re-raise HTTP exceptions
         raise
