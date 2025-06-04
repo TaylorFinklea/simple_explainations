@@ -9,19 +9,19 @@ services:
       - PORT=8000
       - PYTHONPATH=/app/src
       # Custom Model Configuration (uncomment and modify to use a different model locally)
+      # The SmolLM models are recommended
       # Lightweight options
       # - MODEL_NAME=distilgpt2              # ~82M params - Fast, minimal memory
       # - MODEL_NAME=gpt2                    # ~124M params - Original GPT-2 small
-      - MODEL_NAME=HuggingFaceTB/SmolLM-135M # ~135M params - Efficient small model
+      - MODEL_NAME=HuggingFaceTB/SmolLM-135M # ~135M params - (RECOMMENDED) Efficient small model
       # Medium options
       # - MODEL_NAME=gpt2-medium # ~355M params - Better quality, more memory
       # - MODEL_NAME=microsoft/DialoGPT-small  # ~117M params - Conversation focused
-      # - MODEL_NAME=HuggingFaceTB/SmolLM-360M # ~360M params - Efficient small model
+      # - MODEL_NAME=HuggingFaceTB/SmolLM-360M # ~360M params - (RECOMMENDED) Efficient small model
       # - MODEL_NAME=Qwen/Qwen2.5-0.5B-Instruct # ~500M params - Instruction-tuned model
       # Large options
       # - MODEL_NAME=gpt2-large # ~774M params - High quality, high memory
-      # - MODEL_NAME=HuggingFaceTB/SmolLM2-1.7B # ~1.7B params - high quality, high memory
-
+      # - MODEL_NAME=HuggingFaceTB/SmolLM2-1.7B # ~1.7B params - (RECOMMENDED) high quality, high memory
       # CORS Configuration (uncomment and modify for production testing)
       # - FRONTEND_URL=http://localhost:8000
       # - ALLOWED_ORIGINS=http://localhost:8000,http://127.0.0.1:8000

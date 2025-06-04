@@ -14,7 +14,7 @@ interface PredictionResponse {
   token_id: number;
 }
 
-const inputPhrase = ref("The wheels on the bus go");
+const inputPhrase = ref("Once upon a time, ");
 const topKTokens = ref(5);
 const predictions = ref<PredictionResult[]>([]);
 const isLoading = ref(false);
