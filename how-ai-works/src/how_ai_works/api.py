@@ -112,7 +112,7 @@ if os.path.exists(static_dir):
 model = None
 tokenizer = None
 model_loading_status = "not_loaded"  # "not_loaded", "loading", "loaded", "error"
-model_name = "HuggingFaceTB/SmolLM2-1.7B"  # The model being used
+model_name = None  # Will be set when model loads
 
 class PredictionRequest(BaseModel):
     input_phrase: str = Field(
@@ -199,7 +199,7 @@ def is_cloud_environment():
         'RAILWAY_ENVIRONMENT',  # Railway
         'RENDER_SERVICE_NAME',  # Render
     ]
-    
+
     return any(os.environ.get(indicator) for indicator in cloud_indicators)
 
 
@@ -207,14 +207,14 @@ def get_model_name():
     """Get the appropriate model name based on environment and user preference"""
     # Check for user-specified model (local environment only for security)
     custom_model = os.environ.get('MODEL_NAME')
-    
+
     if custom_model and not is_cloud_environment():
         # Allow custom model in local environment only
         return custom_model
     elif custom_model and is_cloud_environment():
         # Log warning but ignore custom model in cloud for security
         logger.warning(f"Custom MODEL_NAME '{custom_model}' ignored in cloud environment for security")
-    
+
     if is_cloud_environment():
         # Use smaller, cloud-friendly model
         return "distilgpt2"
@@ -230,7 +230,7 @@ def load_model_and_tokenizer():
     if model is None or tokenizer is None:
         model_loading_status = "loading"
         model_name = get_model_name()
-        
+
         environment = "cloud" if is_cloud_environment() else "local"
         logger.info(f"Detected {environment} environment, using model: {model_name}")
 
@@ -308,23 +308,23 @@ async def startup_logging():
     environment = "cloud" if is_cloud_environment() else "local"
     selected_model = get_model_name()
     custom_model = os.environ.get('MODEL_NAME')
-    
+
     logger.info("=" * 50)
     logger.info("🚀 AI Word Prediction API Starting Up")
     logger.info(f"🌍 Environment detected: {environment}")
     logger.info(f"🤖 Selected model: {selected_model}")
-    
+
     if custom_model:
         if not is_cloud_environment():
             logger.info(f"🎯 Custom model specified: {custom_model}")
         else:
             logger.warning(f"⚠️  Custom model '{custom_model}' ignored in cloud environment")
-    
+
     if is_cloud_environment():
         logger.info("☁️  Cloud environment detected - using lightweight model for better performance")
-        detected_vars = [var for var in ['K_SERVICE', 'GAE_APPLICATION', 'AWS_LAMBDA_FUNCTION_NAME', 
-                                        'AZURE_FUNCTIONS_ENVIRONMENT', 'HEROKU_APP_NAME', 
-                                        'RAILWAY_ENVIRONMENT', 'RENDER_SERVICE_NAME'] 
+        detected_vars = [var for var in ['K_SERVICE', 'GAE_APPLICATION', 'AWS_LAMBDA_FUNCTION_NAME',
+                                        'AZURE_FUNCTIONS_ENVIRONMENT', 'HEROKU_APP_NAME',
+                                        'RAILWAY_ENVIRONMENT', 'RENDER_SERVICE_NAME']
                         if os.environ.get(var)]
         logger.info(f"   Detected environment variables: {detected_vars}")
     else:
@@ -344,12 +344,13 @@ def ensure_model_loaded():
 async def health_check():
     """Health check endpoint"""
     environment = "cloud" if is_cloud_environment() else "local"
+    current_model_name = model_name if model_name else get_model_name()
     return {
         "status": "healthy",
         "model_loaded": model is not None,
         "tokenizer_loaded": tokenizer is not None,
         "model_loading_status": model_loading_status,
-        "model_name": model_name,
+        "model_name": current_model_name,
         "environment": environment,
         "timestamp": datetime.utcnow().isoformat(),
         "version": "1.0.0"
@@ -359,12 +360,13 @@ async def health_check():
 async def api_health_check():
     """API health check with model status"""
     environment = "cloud" if is_cloud_environment() else "local"
+    current_model_name = model_name if model_name else get_model_name()
     return {
         "status": "healthy",
         "model_loaded": model is not None,
         "tokenizer_loaded": tokenizer is not None,
         "model_loading_status": model_loading_status,
-        "model_name": model_name,
+        "model_name": current_model_name,
         "environment": environment
     }
 
@@ -378,16 +380,17 @@ async def get_model_status():
     """Get the current model loading status"""
     environment = "cloud" if is_cloud_environment() else "local"
     custom_model = os.environ.get('MODEL_NAME')
-    
+    current_model_name = model_name if model_name else get_model_name()
+
     status_response = {
         "status": model_loading_status,
         "model_loaded": model is not None,
         "tokenizer_loaded": tokenizer is not None,
-        "model_name": model_name,
+        "model_name": current_model_name,
         "environment": environment,
         "is_cloud_environment": is_cloud_environment(),
         "available_models": {
-            "cloud": "distilgpt2",
+            "cloud": "HuggingFaceTB/SmolLM-135M",
             "local": "HuggingFaceTB/SmolLM2-1.7B"
         },
         "custom_model_support": {
@@ -402,10 +405,10 @@ async def get_model_status():
             "error": "An error occurred while loading the model"
         }.get(model_loading_status, "Unknown status")
     }
-    
+
     if custom_model and is_cloud_environment():
         status_response["warning"] = f"Custom model '{custom_model}' ignored in cloud environment for security"
-    
+
     return status_response
 
 @app.post("/api/model/load")
@@ -512,11 +515,20 @@ async def predict_next_word(request: Request, payload: PredictionRequest):
                 # Additional safety: filter out control characters from predictions
                 predicted_word = re.sub(r'[\x00-\x1f\x7f-\x9f]', '', predicted_word)
 
-                # Filter out empty, whitespace-only, or truly problematic tokens
-                if (predicted_word and
+                # Filter out problematic patterns and tokens
+                is_valid_token = (
+                    predicted_word and
                     len(predicted_word) > 0 and
                     len(predicted_word) <= 50 and  # Reasonable word length limit
-                    not re.search(r'^[<>{}[\]\\|`~@#$%^&*+=]+$', predicted_word)):  # Block problematic chars only
+                    not re.search(r'^[<>{}[\]\\|`~@#$%^&*+=]+$', predicted_word) and  # Block problematic chars
+                    not re.search(r'^\.{2,}\s*$', predicted_word) and  # Block multiple dots (.. ... etc)
+                    not re.search(r'^\s*\.\s*\.\s*\.?\s*$', predicted_word) and  # Block spaced ellipsis patterns (. . ., . . etc)
+                    not re.search(r'^(\s*\.\s*){2,}$', predicted_word) and  # Block repetitive spaced dots
+                    predicted_word.strip() != '...' and  # Block literal ellipsis
+                    predicted_word.strip() != '…'  # Block unicode ellipsis
+                )
+
+                if is_valid_token:
 
                     predictions.append(PredictionResult(
                         word=predicted_word,
