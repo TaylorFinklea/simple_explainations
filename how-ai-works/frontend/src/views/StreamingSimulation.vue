@@ -481,7 +481,7 @@ onMounted(() => {
             {{ rateLimitRetryIn }} seconds before trying again.
           </p>
           <p class="text-orange-600 text-xs mt-2">
-            💡 <strong>Tip:</strong> The API allows 15 predictions per minute to
+            💡 <strong>Tip:</strong> The API allows 20 predictions per minute to
             ensure fair usage for all users.
           </p>
         </div>
