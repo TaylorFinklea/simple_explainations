@@ -187,13 +187,52 @@ class PredictionResponse(BaseModel):
 # This is a slightly different placement than "before load_model_and_tokenizer",
 # but it's a more logical grouping with other middleware.
 
+def is_cloud_environment():
+    """Detect if running in a cloud environment"""
+    # Check for common cloud environment variables
+    cloud_indicators = [
+        'K_SERVICE',  # Google Cloud Run
+        'GAE_APPLICATION',  # Google App Engine
+        'AWS_LAMBDA_FUNCTION_NAME',  # AWS Lambda
+        'AZURE_FUNCTIONS_ENVIRONMENT',  # Azure Functions
+        'HEROKU_APP_NAME',  # Heroku
+        'RAILWAY_ENVIRONMENT',  # Railway
+        'RENDER_SERVICE_NAME',  # Render
+    ]
+    
+    return any(os.environ.get(indicator) for indicator in cloud_indicators)
+
+
+def get_model_name():
+    """Get the appropriate model name based on environment and user preference"""
+    # Check for user-specified model (local environment only for security)
+    custom_model = os.environ.get('MODEL_NAME')
+    
+    if custom_model and not is_cloud_environment():
+        # Allow custom model in local environment only
+        return custom_model
+    elif custom_model and is_cloud_environment():
+        # Log warning but ignore custom model in cloud for security
+        logger.warning(f"Custom MODEL_NAME '{custom_model}' ignored in cloud environment for security")
+    
+    if is_cloud_environment():
+        # Use smaller, cloud-friendly model
+        return "distilgpt2"
+    else:
+        # Use SMOL model for local development
+        return "HuggingFaceTB/SmolLM2-1.7B"
+
+
 def load_model_and_tokenizer():
     """Load the model and tokenizer securely"""
-    global model, tokenizer, model_loading_status
+    global model, tokenizer, model_loading_status, model_name
 
     if model is None or tokenizer is None:
         model_loading_status = "loading"
-        model_name = "HuggingFaceTB/SmolLM2-1.7B"
+        model_name = get_model_name()
+        
+        environment = "cloud" if is_cloud_environment() else "local"
+        logger.info(f"Detected {environment} environment, using model: {model_name}")
 
         try:
             logger.info(f"Loading tokenizer for {model_name}...")
@@ -214,15 +253,32 @@ def load_model_and_tokenizer():
 
             logger.info(f"Loading model {model_name}...")
 
-            # Load model with safety measures
+            # Configure model loading parameters based on environment
+            if is_cloud_environment():
+                # Cloud-optimized parameters for smaller models
+                model_kwargs = {
+                    'torch_dtype': torch.float16,  # Use half precision for memory efficiency
+                    'device_map': 'auto',
+                    'trust_remote_code': False,
+                    'local_files_only': False,
+                    'use_safetensors': True,
+                    'low_cpu_mem_usage': True,
+                }
+            else:
+                # Local development parameters for SMOL model
+                model_kwargs = {
+                    'torch_dtype': torch.float32,  # Use float32 for CPU stability
+                    'device_map': 'cpu',
+                    'trust_remote_code': False,
+                    'local_files_only': False,
+                    'use_safetensors': True,
+                    'low_cpu_mem_usage': True,
+                }
+
+            # Load model with environment-specific parameters
             model = AutoModelForCausalLM.from_pretrained(
                 model_name,
-                torch_dtype=torch.float32,  # Use float32 for CPU
-                device_map='cpu',
-                trust_remote_code=False,  # Critical security fix
-                local_files_only=False,
-                use_safetensors=True,  # Use safer tensor format when available
-                low_cpu_mem_usage=True,  # More efficient memory usage
+                **model_kwargs
             )
 
             # Set model to evaluation mode for inference
@@ -246,6 +302,38 @@ def load_model_and_tokenizer():
 #     print(f"Allowed CORS origins: {allowed_origins}")
 #     load_model_and_tokenizer()
 
+@app.on_event("startup")
+async def startup_logging():
+    """Log environment detection and model selection at startup"""
+    environment = "cloud" if is_cloud_environment() else "local"
+    selected_model = get_model_name()
+    custom_model = os.environ.get('MODEL_NAME')
+    
+    logger.info("=" * 50)
+    logger.info("🚀 AI Word Prediction API Starting Up")
+    logger.info(f"🌍 Environment detected: {environment}")
+    logger.info(f"🤖 Selected model: {selected_model}")
+    
+    if custom_model:
+        if not is_cloud_environment():
+            logger.info(f"🎯 Custom model specified: {custom_model}")
+        else:
+            logger.warning(f"⚠️  Custom model '{custom_model}' ignored in cloud environment")
+    
+    if is_cloud_environment():
+        logger.info("☁️  Cloud environment detected - using lightweight model for better performance")
+        detected_vars = [var for var in ['K_SERVICE', 'GAE_APPLICATION', 'AWS_LAMBDA_FUNCTION_NAME', 
+                                        'AZURE_FUNCTIONS_ENVIRONMENT', 'HEROKU_APP_NAME', 
+                                        'RAILWAY_ENVIRONMENT', 'RENDER_SERVICE_NAME'] 
+                        if os.environ.get(var)]
+        logger.info(f"   Detected environment variables: {detected_vars}")
+    else:
+        logger.info("🏠 Local environment detected")
+        if not custom_model:
+            logger.info("   Using default SMOL model (set MODEL_NAME env var to use custom model)")
+    logger.info(f"🔗 Allowed CORS origins: {allowed_origins}")
+    logger.info("=" * 50)
+
 def ensure_model_loaded():
     """Ensure model is loaded before processing requests"""
     global model, tokenizer, model_loading_status
@@ -254,13 +342,15 @@ def ensure_model_loaded():
 
 @app.get("/health")
 async def health_check():
-    """Health check with model status"""
+    """Health check endpoint"""
+    environment = "cloud" if is_cloud_environment() else "local"
     return {
         "status": "healthy",
         "model_loaded": model is not None,
         "tokenizer_loaded": tokenizer is not None,
         "model_loading_status": model_loading_status,
         "model_name": model_name,
+        "environment": environment,
         "timestamp": datetime.utcnow().isoformat(),
         "version": "1.0.0"
     }
@@ -268,12 +358,14 @@ async def health_check():
 @app.get("/api/health")
 async def api_health_check():
     """API health check with model status"""
+    environment = "cloud" if is_cloud_environment() else "local"
     return {
         "status": "healthy",
         "model_loaded": model is not None,
         "tokenizer_loaded": tokenizer is not None,
         "model_loading_status": model_loading_status,
-        "model_name": model_name
+        "model_name": model_name,
+        "environment": environment
     }
 
 @app.get("/api")
@@ -284,11 +376,25 @@ async def root():
 @app.get("/api/model/status")
 async def get_model_status():
     """Get the current model loading status"""
-    return {
+    environment = "cloud" if is_cloud_environment() else "local"
+    custom_model = os.environ.get('MODEL_NAME')
+    
+    status_response = {
         "status": model_loading_status,
         "model_loaded": model is not None,
         "tokenizer_loaded": tokenizer is not None,
         "model_name": model_name,
+        "environment": environment,
+        "is_cloud_environment": is_cloud_environment(),
+        "available_models": {
+            "cloud": "distilgpt2",
+            "local": "HuggingFaceTB/SmolLM2-1.7B"
+        },
+        "custom_model_support": {
+            "enabled": not is_cloud_environment(),
+            "current_custom": custom_model if not is_cloud_environment() else None,
+            "usage": "Set MODEL_NAME environment variable (local only)"
+        },
         "description": {
             "not_loaded": "Model has not been loaded yet",
             "loading": "Model is currently being loaded",
@@ -296,6 +402,11 @@ async def get_model_status():
             "error": "An error occurred while loading the model"
         }.get(model_loading_status, "Unknown status")
     }
+    
+    if custom_model and is_cloud_environment():
+        status_response["warning"] = f"Custom model '{custom_model}' ignored in cloud environment for security"
+    
+    return status_response
 
 @app.post("/api/model/load")
 async def load_model():

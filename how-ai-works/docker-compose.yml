@@ -8,6 +8,10 @@ services:
     environment:
       - PORT=8000
       - PYTHONPATH=/app/src
+      # Custom Model Configuration (uncomment and modify to use a different model locally)
+      # - MODEL_NAME=microsoft/DialoGPT-small
+      # - MODEL_NAME=gpt2
+      # - MODEL_NAME=distilgpt2
       # CORS Configuration (uncomment and modify for production testing)
       # - FRONTEND_URL=http://localhost:8000
       # - ALLOWED_ORIGINS=http://localhost:8000,http://127.0.0.1:8000
