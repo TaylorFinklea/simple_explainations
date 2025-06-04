@@ -217,7 +217,7 @@ def get_model_name():
 
     if is_cloud_environment():
         # Use smaller, cloud-friendly model
-        return "distilgpt2"
+        return "HuggingFaceTB/SmolLM-135M"
     else:
         # Use SMOL model for local development
         return "HuggingFaceTB/SmolLM2-1.7B"
