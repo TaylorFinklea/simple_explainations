@@ -464,7 +464,7 @@ onMounted(() => {
         Please start the FastAPI server to use the AI streaming simulation.
       </p>
       <div class="bg-gray-100 p-2 rounded text-sm">
-        <code>cd how-ai-works && uv run ai-server</code>
+        <code>cd how-ai-works && uv sync && uv run ai-server</code>
       </div>
     </div>
 

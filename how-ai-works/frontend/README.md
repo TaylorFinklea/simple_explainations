@@ -32,7 +32,7 @@ npm run build
 1. **Start the backend server first:**
    ```bash
    cd ../  # Navigate to how-ai-works directory
-   uv run ai-server
+   uv sync && uv run ai-server
    ```
 
 2. **Start the frontend (in a new terminal):**
