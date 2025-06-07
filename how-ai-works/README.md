@@ -24,7 +24,7 @@ open http://localhost:8000
 
 ```bash
 # Backend
-uv install && uv run ai-server
+uv sync && uv run ai-server
 
 # Frontend (separate terminal)
 cd frontend && npm install && npm run dev
