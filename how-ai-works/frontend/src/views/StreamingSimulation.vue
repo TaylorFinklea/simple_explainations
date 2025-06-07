@@ -228,19 +228,26 @@ const selectWordByProbability = (predictions: PredictionResult[]) => {
   );
   if (validPredictions.length === 0) return null;
 
-  // For simulation, we'll use a weighted random selection based on probability
-  const random = Math.random();
-  let cumulativeProbability = 0;
+  // Apply temperature to probability distribution. Temperature < 1 makes
+  // selection more deterministic while values > 1 flatten the distribution.
+  const temp = Math.max(0.1, temperature.value);
+  const adjusted = validPredictions.map((pred) => ({
+    pred,
+    weight: Math.pow(pred.probability, 1 / temp),
+  }));
+  const totalWeight = adjusted.reduce((sum, a) => sum + a.weight, 0);
 
-  for (const prediction of validPredictions) {
-    cumulativeProbability += prediction.probability;
-    if (random <= cumulativeProbability) {
-      return prediction;
+  const target = Math.random() * totalWeight;
+  let cumulative = 0;
+  for (const { pred, weight } of adjusted) {
+    cumulative += weight;
+    if (target <= cumulative) {
+      return pred;
     }
   }
 
-  // Fallback to highest probability
-  return validPredictions[0];
+  // Fallback to highest probability if something went wrong
+  return adjusted[0].pred;
 };
 
 const startCountdown = () => {
