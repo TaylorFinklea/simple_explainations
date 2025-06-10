@@ -17,14 +17,16 @@ Interactive demonstration of how AI language models work, featuring real-time wo
 git clone <repository-url>
 cd how-ai-works
 docker compose up
-open http://localhost:8000
+# then open your browser to http://localhost:8000
 ```
 
 ### Development
 
 ```bash
-# Backend
+# Backend (requires [uv](https://github.com/astral-sh/uv))
 uv sync && uv run ai-server
+# Or with standard tools
+pip install -e . && ai-server
 
 # Frontend (separate terminal)
 cd frontend && npm install && npm run dev
@@ -78,6 +80,9 @@ PORT=8000                    # Server port
 FRONTEND_URL=http://...      # CORS configuration
 ALLOWED_ORIGINS=http://...   # Additional CORS origins
 ```
+These variables configure CORS for the FastAPI server. `FRONTEND_URL` should
+point to the primary domain hosting the frontend. Use `ALLOWED_ORIGINS` to
+specify any extra comma-separated origins that may access the API.
 
 ## Performance
 
@@ -116,18 +121,6 @@ docker compose build --no-cache
 docker compose up
 ```
 
-## Testing
-
-```bash
-# Test API endpoints
-python test_model_loading.py
-
-# Demo user flow
-python demo_model_loading.py test-flow
-
-# Check current status
-python demo_model_loading.py status
-```
 
 ## Project Structure
 
@@ -136,7 +129,6 @@ how-ai-works/
 ├── src/how_ai_works/     # Python backend
 ├── frontend/             # Vue.js frontend
 ├── scripts/              # Utility scripts
-├── test_*.py             # Tests and demos
 └── docker-compose.yml    # Docker setup
 ```
 
